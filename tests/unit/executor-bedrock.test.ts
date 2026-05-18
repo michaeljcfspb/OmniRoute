@@ -213,6 +213,62 @@ test("openAIToBedrockConverse skips content tool_use blocks without matching res
   assert.deepEqual(toolUseIds, ["call_done"]);
 });
 
+test("openAIToBedrockConverse merges consecutive tool results after multi-tool calls", () => {
+  const payload = openAIToBedrockConverse("anthropic.claude-sonnet-4-6", {
+    messages: [
+      { role: "user", content: "use tools" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_a",
+            type: "function",
+            function: { name: "a", arguments: "{}" },
+          },
+          {
+            id: "call_b",
+            type: "function",
+            function: { name: "b", arguments: "{}" },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_a", content: "a result" },
+      { role: "tool", tool_call_id: "call_b", content: "b result" },
+    ],
+  });
+
+  const toolUseIds = payload.messages[1].content.map((block) => block.toolUse?.toolUseId);
+  const toolResultIds = payload.messages[2].content.map((block) => block.toolResult?.toolUseId);
+  assert.deepEqual(toolUseIds, ["call_a", "call_b"]);
+  assert.deepEqual(toolResultIds, ["call_a", "call_b"]);
+  assert.equal(payload.messages.length, 3);
+});
+
+test("openAIToBedrockConverse removes tool uses whose results are not immediately next", () => {
+  const payload = openAIToBedrockConverse("anthropic.claude-sonnet-4-6", {
+    messages: [
+      { role: "user", content: "use a tool" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_late",
+            type: "function",
+            function: { name: "late", arguments: "{}" },
+          },
+        ],
+      },
+      { role: "user", content: "interruption" },
+      { role: "tool", tool_call_id: "call_late", content: "late result" },
+    ],
+  });
+
+  assert.deepEqual(payload.messages[1].content, [{ text: " " }]);
+  assert.deepEqual(payload.messages[3].content, [{ text: " " }]);
+});
+
 test("BedrockExecutor converts non-streaming Converse output to OpenAI chat completion JSON", async () => {
   const sent = [];
   const executor = new BedrockExecutor(() => ({

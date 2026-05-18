@@ -158,6 +158,87 @@ function collectAnsweredToolUseIds(messages) {
   return answered;
 }
 
+function getToolUseIdFromBlock(block) {
+  return normalizeToolUseId(block?.toolUse?.toolUseId);
+}
+
+function getToolResultIdFromBlock(block) {
+  return normalizeToolUseId(block?.toolResult?.toolUseId);
+}
+
+function isToolResultOnlyMessage(message) {
+  return (
+    message?.role === "user" &&
+    Array.isArray(message.content) &&
+    message.content.length > 0 &&
+    message.content.every((block) => Boolean(getToolResultIdFromBlock(block)))
+  );
+}
+
+function mergeConsecutiveToolResultMessages(messages) {
+  const merged = [];
+  for (const message of messages) {
+    const previous = merged[merged.length - 1];
+    if (isToolResultOnlyMessage(previous) && isToolResultOnlyMessage(message)) {
+      previous.content.push(...message.content);
+      continue;
+    }
+    merged.push(message);
+  }
+  return merged;
+}
+
+function ensureNonEmptyContent(message) {
+  if (!Array.isArray(message.content) || message.content.length === 0) {
+    message.content = [{ text: " " }];
+  }
+}
+
+function sanitizeBedrockToolPairs(messages) {
+  const normalized = mergeConsecutiveToolResultMessages(messages);
+  const validResultCounts = new Map();
+
+  for (let i = 0; i < normalized.length; i++) {
+    const message = normalized[i];
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+
+    const nextMessage = normalized[i + 1];
+    const nextResultIds = new Set(
+      nextMessage?.role === "user" && Array.isArray(nextMessage.content)
+        ? nextMessage.content.map(getToolResultIdFromBlock).filter(Boolean)
+        : []
+    );
+
+    const toolUseIds = message.content.map(getToolUseIdFromBlock).filter(Boolean);
+    if (toolUseIds.length === 0) continue;
+
+    const allowedIds = new Set(toolUseIds.filter((id) => nextResultIds.has(id)));
+    message.content = message.content.filter((block) => {
+      const toolUseId = getToolUseIdFromBlock(block);
+      return !toolUseId || allowedIds.has(toolUseId);
+    });
+    ensureNonEmptyContent(message);
+    for (const id of allowedIds) {
+      validResultCounts.set(id, (validResultCounts.get(id) || 0) + 1);
+    }
+  }
+
+  for (const message of normalized) {
+    if (message?.role !== "user" || !Array.isArray(message.content)) continue;
+    message.content = message.content.filter((block) => {
+      const resultId = getToolResultIdFromBlock(block);
+      if (!resultId) return true;
+      const remaining = validResultCounts.get(resultId) || 0;
+      if (remaining <= 0) return false;
+      validResultCounts.set(resultId, remaining - 1);
+      return true;
+    });
+    ensureNonEmptyContent(message);
+  }
+
+  return normalized;
+}
+
 function messagesFromOpenAI(messages) {
   const converted = [];
   const pendingToolUseIds = new Set();
@@ -227,7 +308,7 @@ function messagesFromOpenAI(messages) {
     converted.push({ role: "user", content: [{ text: " " }] });
   }
 
-  return converted;
+  return sanitizeBedrockToolPairs(converted);
 }
 
 function toolConfigFromOpenAI(tools, toolChoice) {
