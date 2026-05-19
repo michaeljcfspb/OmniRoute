@@ -351,6 +351,9 @@ const scoringWeightsSchema = z
     taskFit: z.number().min(0).max(1),
     stability: z.number().min(0).max(1),
     tierPriority: z.number().min(0).max(1).optional().default(0.05),
+    tierAffinity: z.number().min(0).max(1).optional().default(0.05),
+    specificityMatch: z.number().min(0).max(1).optional().default(0.05),
+    contextAffinity: z.number().min(0).max(1).optional().default(0.08),
   })
   .optional();
 
@@ -413,6 +416,11 @@ const comboRuntimeConfigSchema = z
     resetAwareExhaustionGuardPercent: z.coerce.number().min(0).max(100).optional(),
     resetAwareQuotaCacheTtlMs: z.coerce.number().int().min(0).max(300_000).optional(),
     resetAwareQuotaCacheMaxStaleMs: z.coerce.number().int().min(0).max(3_600_000).optional(),
+    resetWindowWindows: z.array(z.enum(["weekly", "session", "monthly"])).optional(),
+    resetWindowIncludeSession: z.boolean().optional(),
+    resetWindowTieBandMs: z.coerce.number().int().min(0).max(86_400_000).optional(),
+    resetWindowQuotaCacheTtlMs: z.coerce.number().int().min(0).max(300_000).optional(),
+    resetWindowQuotaCacheMaxStaleMs: z.coerce.number().int().min(0).max(3_600_000).optional(),
   })
   .strict();
 

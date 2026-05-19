@@ -1,8 +1,8 @@
 /**
  * Shared combo (model combo) handling with fallback support
  * Supports: priority, weighted, round-robin, random, least-used, cost-optimized,
- * reset-aware, strict-random, auto, fill-first, p2c, lkgp, context-optimized,
- * and context-relay strategies
+ * reset-aware, reset-window, strict-random, auto, fill-first, p2c, lkgp,
+ * context-optimized, and context-relay strategies
  */
 
 import {
@@ -109,6 +109,13 @@ const RESET_AWARE_DEFAULTS = {
   weeklyWeight: 0.65,
   tieBandPercent: 5,
   exhaustionGuardPercent: 10,
+};
+const RESET_WINDOW_DEFAULT_TIE_BAND_MS = 60_000;
+const RESET_WINDOW_NAMES = ["weekly", "session", "monthly"] as const;
+type ResetWindowName = (typeof RESET_WINDOW_NAMES)[number];
+type QuotaFetchCacheConfig = {
+  quotaCacheTtlMs: number;
+  quotaCacheMaxStaleMs: number;
 };
 
 export type ResolvedComboTarget = {
@@ -787,6 +794,32 @@ function resolveResetAwareConfig(config: Record<string, unknown> | null | undefi
   };
 }
 
+function resolveResetWindowConfig(config: Record<string, unknown> | null | undefined) {
+  const rawWindows = Array.isArray(config?.resetWindowWindows) ? config.resetWindowWindows : null;
+  const windows = rawWindows
+    ?.filter((windowName): windowName is ResetWindowName =>
+      (RESET_WINDOW_NAMES as readonly string[]).includes(String(windowName))
+    )
+    .filter((windowName, index, array) => array.indexOf(windowName) === index);
+
+  const effectiveWindows =
+    windows && windows.length > 0
+      ? windows
+      : config?.resetWindowIncludeSession === true
+        ? (["weekly", "session"] as ResetWindowName[])
+        : (["weekly"] as ResetWindowName[]);
+
+  return {
+    windows: effectiveWindows,
+    tieBandMs: Math.max(
+      0,
+      finiteNumberOrNull(config?.resetWindowTieBandMs) ?? RESET_WINDOW_DEFAULT_TIE_BAND_MS
+    ),
+    quotaCacheTtlMs: getDurationConfig(config?.resetWindowQuotaCacheTtlMs, 0, 300_000),
+    quotaCacheMaxStaleMs: getDurationConfig(config?.resetWindowQuotaCacheMaxStaleMs, 0, 3_600_000),
+  };
+}
+
 function getResetAwareProvider(target: ResolvedComboTarget): string | null {
   const provider = (target.providerId || target.provider || "").toLowerCase();
   return provider || null;
@@ -819,6 +852,55 @@ function getQuotaWindow(
   const percentUsed = finiteNumberOrNull(window.percentUsed);
   const resetAt = normalizeResetAt(window.resetAt);
   return { percentUsed, resetAt };
+}
+
+function normalizeWindowPercentUsed(value: unknown): number | null {
+  const numericValue = finiteNumberOrNull(value);
+  if (numericValue === null) return null;
+  if (numericValue > 1) return clamp01(numericValue / 100);
+  return clamp01(numericValue);
+}
+
+function getNamedQuotaWindow(
+  quota: unknown,
+  windowName: ResetWindowName
+): { percentUsed: number | null; resetAt: string | null } | null {
+  if (!quota || !isRecord(quota)) return null;
+
+  if (windowName === "session") return getQuotaWindow(quota, "window5h");
+  if (windowName === "weekly") {
+    return getQuotaWindow(quota, "window7d") || getQuotaWindow(quota, "windowWeekly");
+  }
+  if (windowName === "monthly") return getQuotaWindow(quota, "windowMonthly");
+
+  return null;
+}
+
+function getWindowsMapQuotaWindow(
+  quota: unknown,
+  windowName: ResetWindowName
+): { percentUsed: number | null; resetAt: string | null } | null {
+  if (!quota || !isRecord(quota) || !isRecord(quota.windows)) return null;
+  const candidates = Object.entries(quota.windows)
+    .map(([key, value]) => ({ key: key.toLowerCase(), value }))
+    .filter(({ key }) => key === windowName || key.startsWith(`${windowName} `));
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.key.localeCompare(b.key));
+  const window = candidates[0].value;
+  if (!isRecord(window)) return null;
+
+  return {
+    percentUsed: normalizeWindowPercentUsed(window.percentUsed),
+    resetAt: normalizeResetAt(window.resetAt),
+  };
+}
+
+function resolveQuotaWindowByName(
+  quota: unknown,
+  windowName: ResetWindowName
+): { percentUsed: number | null; resetAt: string | null } | null {
+  return getNamedQuotaWindow(quota, windowName) || getWindowsMapQuotaWindow(quota, windowName);
 }
 
 function getResetUrgency(resetAt: string | null | undefined, windowMs: number): number {
@@ -999,7 +1081,7 @@ async function fetchResetAwareQuotaWithCache({
   connectionId: string;
   connection?: Record<string, unknown>;
   fetcher: (connectionId: string, connection?: Record<string, unknown>) => Promise<unknown>;
-  config: ReturnType<typeof resolveResetAwareConfig>;
+  config: QuotaFetchCacheConfig;
   log: { debug?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void };
   comboName: string;
 }): Promise<unknown> {
@@ -1191,6 +1273,152 @@ async function orderTargetsByResetAwareQuota(
   ].map((entry) => entry.target);
 }
 
+function getResetWindowTimestampMs(quota: unknown, windows: ResetWindowName[]): number {
+  if (!quota || !isRecord(quota) || quota.limitReached === true) return Infinity;
+
+  let selectedResetMs = Infinity;
+  for (const windowName of windows) {
+    const window = resolveQuotaWindowByName(quota, windowName);
+    const resetMs = parseResetTimeMs(window?.resetAt ?? null);
+    if (Number.isFinite(resetMs)) {
+      selectedResetMs = Math.min(selectedResetMs, resetMs);
+    }
+  }
+
+  if (!Number.isFinite(selectedResetMs)) {
+    selectedResetMs = parseResetTimeMs(normalizeResetAt(quota.resetAt));
+  }
+
+  return Number.isFinite(selectedResetMs) ? selectedResetMs : Infinity;
+}
+
+async function orderTargetsByResetWindow(
+  targets: ResolvedComboTarget[],
+  comboName: string,
+  configSource: Record<string, unknown> | null | undefined,
+  log: { warn?: (...args: unknown[]) => void },
+  apiKeyAllowedConnectionIds?: string[] | null
+) {
+  if (targets.length === 0) return targets;
+
+  const config = resolveResetWindowConfig(configSource);
+  const connectionCache = new Map<string, Array<Record<string, unknown>>>();
+  const connectionLoadPromises = new Map<string, Promise<Array<Record<string, unknown>>>>();
+  const quotaPromises = new Map<string, Promise<unknown>>();
+  const connectionById = new Map<string, Record<string, unknown>>();
+  const expandedTargets: ResolvedComboTarget[] = [];
+
+  const targetsWithConnections = await Promise.all(
+    targets.map(async (target) => ({
+      connections: await getQuotaAwareConnectionsForTarget(
+        target,
+        connectionCache,
+        connectionLoadPromises,
+        comboName,
+        log
+      ),
+      target,
+    }))
+  );
+
+  for (const { target, connections } of targetsWithConnections) {
+    for (const connection of connections) {
+      if (typeof connection.id === "string") connectionById.set(connection.id, connection);
+    }
+
+    const unrestrictedConnectionIds = getTargetConnectionIds(target, connections);
+    const connectionIds = filterAllowedConnectionIds(
+      unrestrictedConnectionIds,
+      apiKeyAllowedConnectionIds
+    );
+    if (connectionIds.length === 0) {
+      if (
+        unrestrictedConnectionIds.length > 0 &&
+        normalizeConnectionIds(apiKeyAllowedConnectionIds)
+      ) {
+        continue;
+      }
+      expandedTargets.push(target);
+      continue;
+    }
+
+    for (const connectionId of connectionIds) {
+      expandedTargets.push({
+        ...target,
+        connectionId,
+        executionKey:
+          target.connectionId === connectionId
+            ? target.executionKey
+            : `${target.executionKey}@${connectionId}`,
+      });
+    }
+  }
+
+  const scoredTargets = await mapWithConcurrency(
+    expandedTargets,
+    RESET_AWARE_QUOTA_FETCH_CONCURRENCY,
+    async (target, index) => {
+      let quota: unknown = null;
+      const provider = getResetAwareProvider(target);
+      const fetcher = provider ? getQuotaFetcher(provider) : null;
+      if (fetcher && provider && target.connectionId) {
+        const quotaKey = `${provider}:${target.connectionId}`;
+        if (!quotaPromises.has(quotaKey)) {
+          quotaPromises.set(
+            quotaKey,
+            fetchResetAwareQuotaWithCache({
+              provider,
+              connectionId: target.connectionId,
+              connection: connectionById.get(target.connectionId),
+              fetcher,
+              config,
+              log,
+              comboName,
+            })
+          );
+        }
+        quota = await quotaPromises.get(quotaKey)!;
+      }
+
+      return {
+        target,
+        resetMs: getResetWindowTimestampMs(quota, config.windows),
+        index,
+      };
+    }
+  );
+
+  scoredTargets.sort((a, b) => {
+    if (a.resetMs !== b.resetMs) return a.resetMs - b.resetMs;
+    return a.index - b.index;
+  });
+
+  const bestResetMs = scoredTargets[0]?.resetMs ?? Infinity;
+  if (!Number.isFinite(bestResetMs) || config.tieBandMs <= 0) {
+    return scoredTargets.map((entry) => entry.target);
+  }
+
+  const tiedTargets = scoredTargets.filter(
+    (entry) => entry.resetMs - bestResetMs <= config.tieBandMs
+  );
+  if (tiedTargets.length <= 1) return scoredTargets.map((entry) => entry.target);
+
+  const key = `reset-window:${comboName}`;
+  const counter = rrCounters.get(key) || 0;
+  rrCounters.set(key, counter + 1);
+  const startIndex = counter % tiedTargets.length;
+  const orderedTiedTargets = [
+    ...tiedTargets.slice(startIndex),
+    ...tiedTargets.slice(0, startIndex),
+  ];
+  const tiedExecutionKeys = new Set(orderedTiedTargets.map((entry) => entry.target.executionKey));
+
+  return [
+    ...orderedTiedTargets,
+    ...scoredTargets.filter((entry) => !tiedExecutionKeys.has(entry.target.executionKey)),
+  ].map((entry) => entry.target);
+}
+
 function toTextContent(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -1243,6 +1471,17 @@ function mapIntentToTaskType(intent) {
   }
 }
 
+function calculateTargetContextAffinity(
+  target: ResolvedComboTarget,
+  sessionId: string | null | undefined
+): number {
+  const sessionConnectionId = getSessionConnection(sessionId || null);
+  if (!sessionConnectionId) return 0.5;
+  if (target.connectionId === sessionConnectionId) return 1;
+  if (!target.connectionId) return 0.5;
+  return 0.1;
+}
+
 function toStringArray(input) {
   if (Array.isArray(input)) {
     return input.map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean);
@@ -1289,7 +1528,11 @@ function getBootstrapLatencyMs(modelId) {
   return DEFAULT_MODEL_P95_MS[normalized] ?? 1500;
 }
 
-async function buildAutoCandidates(targets, comboName) {
+async function buildAutoCandidates(
+  targets,
+  comboName,
+  sessionId: string | null | undefined = null
+) {
   const metrics = getComboMetrics(comboName);
   const { getPricingForModel } = await import("../../src/lib/localDb");
   let historicalLatencyStats = {};
@@ -1359,6 +1602,7 @@ async function buildAutoCandidates(targets, comboName) {
       const breakerStateRaw = getCircuitBreaker(provider)?.getStatus?.()?.state;
       const circuitBreakerState =
         breakerStateRaw === "OPEN" || breakerStateRaw === "HALF_OPEN" ? breakerStateRaw : "CLOSED";
+      const contextAffinity = calculateTargetContextAffinity(target, sessionId);
 
       return {
         stepId: target.stepId,
@@ -1375,6 +1619,7 @@ async function buildAutoCandidates(targets, comboName) {
         errorRate,
         accountTier: "standard",
         quotaResetIntervalSecs: 86400,
+        contextAffinity,
       };
     })
   );
@@ -1856,7 +2101,11 @@ export async function handleComboChat({
       log.warn("COMBO", "Failed to retrieve Last Known Good Provider. This is non-fatal.", { err });
     }
 
-    const candidates = await buildAutoCandidates(eligibleTargets, combo.name);
+    const candidates = await buildAutoCandidates(
+      eligibleTargets,
+      combo.name,
+      relayOptions?.sessionId
+    );
     if (candidates.length > 0) {
       let selectedProvider = null;
       let selectedModel = null;
@@ -2023,6 +2272,18 @@ export async function handleComboChat({
     log.info(
       "COMBO",
       `Reset-aware ordering: ${orderedTargets[0]?.modelStr}${orderedTargets[0]?.connectionId ? ` (${orderedTargets[0].connectionId})` : ""} first`
+    );
+  } else if (strategy === "reset-window") {
+    orderedTargets = await orderTargetsByResetWindow(
+      orderedTargets,
+      combo.name,
+      config,
+      log,
+      apiKeyAllowedConnections
+    );
+    log.info(
+      "COMBO",
+      `Reset-window ordering: ${orderedTargets[0]?.modelStr}${orderedTargets[0]?.connectionId ? ` (${orderedTargets[0].connectionId})` : ""} first`
     );
   } else if (strategy === "context-optimized") {
     orderedTargets = sortTargetsByContextSize(orderedTargets);
