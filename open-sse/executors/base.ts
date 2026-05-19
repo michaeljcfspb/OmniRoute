@@ -13,6 +13,7 @@ import {
 import { getClaudeCodeCompatibleRequestDefaults } from "@/lib/providers/requestDefaults";
 import { remapToolNamesInRequest } from "../services/claudeCodeToolRemapper.ts";
 import { obfuscateInBody } from "../services/claudeCodeObfuscation.ts";
+import { sanitizeResponsesInputItems } from "../services/responsesInputSanitizer.ts";
 import { applySystemTransformPipeline, PROVIDER_CLAUDE } from "../services/systemTransforms.ts";
 import {
   fixToolPairs,
@@ -375,6 +376,10 @@ export class BaseExecutor {
     // like tool descriptions to avoid upstream validation failures.
     if (body && typeof body === "object" && !Array.isArray(body)) {
       const cloned = { ...body } as Record<string, unknown>;
+
+      if (Array.isArray(cloned.input)) {
+        cloned.input = sanitizeResponsesInputItems(cloned.input, false);
+      }
 
       if (Array.isArray(cloned.tools)) {
         cloned.tools = cloned.tools.map((tool: unknown) => {
