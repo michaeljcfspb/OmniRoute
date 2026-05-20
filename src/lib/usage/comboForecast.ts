@@ -377,10 +377,11 @@ export async function buildComboForecastResponse(opts: {
   horizon: ComboForecastHorizon;
   comboId?: string;
   now?: number;
+  combos?: ComboRecord[];
 }): Promise<ComboForecastResponse> {
   const now = opts.now ?? Date.now();
   const since = getRangeStartIso(opts.range, now);
-  const allCombos = (await getCombos()) as ComboRecord[];
+  const allCombos = opts.combos ?? ((await getCombos()) as ComboRecord[]);
   const rangeDays = daysFromMs(RANGE_MS[opts.range]);
   const horizonDays = daysFromMs(HORIZON_MS[opts.horizon]);
   const projectionFactor = HORIZON_MS[opts.horizon] / RANGE_MS[opts.range];

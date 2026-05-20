@@ -300,7 +300,7 @@ export async function buildComboScoringInspectorResponse(
 ): Promise<ComboScoringInspectorResponse> {
   const taskType = normalizeTaskType(options.taskType);
   const weights = DEFAULT_WEIGHTS;
-  const [health, forecast, autopilot] = await Promise.all([
+  const [health, forecast] = await Promise.all([
     buildComboHealthResponse({ range: options.range, comboId: options.comboId, now: options.now }),
     buildComboForecastResponse({
       range: options.range,
@@ -308,15 +308,17 @@ export async function buildComboScoringInspectorResponse(
       comboId: options.comboId,
       now: options.now,
     }),
-    buildComboHealthAutopilotReport({
-      range: options.range,
-      horizon: options.horizon,
-      comboId: options.comboId,
-      includeHealthy: true,
-      includeActions: false,
-      now: options.now,
-    }),
   ]);
+  const autopilot = await buildComboHealthAutopilotReport({
+    range: options.range,
+    horizon: options.horizon,
+    comboId: options.comboId,
+    includeHealthy: true,
+    includeActions: false,
+    now: options.now,
+    healthResponse: health,
+    forecastResponse: forecast,
+  });
 
   const forecastByComboId = new Map(forecast.combos.map((combo) => [combo.comboId, combo]));
   const autopilotByComboId = new Map(autopilot.combos.map((combo) => [combo.comboId, combo]));

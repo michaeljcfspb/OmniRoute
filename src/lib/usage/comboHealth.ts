@@ -522,9 +522,10 @@ export async function buildComboHealthResponse(opts: {
   range: UtilizationTimeRange;
   comboId?: string;
   now?: number;
+  combos?: ComboRecord[];
 }): Promise<ComboHealthResponse> {
   const since = getRangeStartIso(opts.range, opts.now);
-  const allCombos = (await getCombos()) as ComboRecord[];
+  const allCombos = opts.combos ?? ((await getCombos()) as ComboRecord[]);
   let combos: ComboRecord[] = [];
 
   if (opts.comboId) {

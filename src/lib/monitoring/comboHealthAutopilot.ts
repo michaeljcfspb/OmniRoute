@@ -1,3 +1,4 @@
+import { getCombos } from "@/lib/db/combos";
 import { buildProviderHealthAutopilotReport } from "@/lib/monitoring/providerHealthAutopilot";
 import { buildComboForecastResponse } from "@/lib/usage/comboForecast";
 import { buildComboHealthResponse } from "@/lib/usage/comboHealth";
@@ -13,12 +14,21 @@ import type {
   ComboAutopilotTargetRef,
   ComboForecastHorizon,
   ComboForecastMetrics,
+  ComboForecastResponse,
   ComboForecastRiskLevel,
   ComboHealthMetrics,
+  ComboHealthResponse,
   UtilizationTimeRange,
 } from "@/shared/types/utilization";
 
 type JsonRecord = Record<string, unknown>;
+
+type ComboRecord = {
+  id?: string;
+  name?: string;
+  strategy?: string;
+  models?: unknown[];
+};
 
 export interface ComboHealthAutopilotOptions {
   range: UtilizationTimeRange;
@@ -27,6 +37,9 @@ export interface ComboHealthAutopilotOptions {
   includeHealthy?: boolean;
   includeActions?: boolean;
   now?: number;
+  combos?: ComboRecord[];
+  healthResponse?: ComboHealthResponse;
+  forecastResponse?: ComboForecastResponse;
 }
 
 type ProviderIssueView = {
@@ -418,15 +431,28 @@ export async function buildComboHealthAutopilotReport(
   const includeHealthy = options.includeHealthy === true;
   const includeActions = options.includeActions !== false;
   const checkedAt = new Date(options.now ?? Date.now()).toISOString();
+  const combosSnapshot =
+    options.combos ??
+    (options.healthResponse && options.forecastResponse
+      ? undefined
+      : ((await getCombos()) as ComboRecord[]));
 
   const [health, forecast, providerHealth] = await Promise.all([
-    buildComboHealthResponse({ range: options.range, comboId: options.comboId, now: options.now }),
-    buildComboForecastResponse({
-      range: options.range,
-      horizon: options.horizon,
-      comboId: options.comboId,
-      now: options.now,
-    }),
+    options.healthResponse ??
+      buildComboHealthResponse({
+        range: options.range,
+        comboId: options.comboId,
+        now: options.now,
+        combos: combosSnapshot,
+      }),
+    options.forecastResponse ??
+      buildComboForecastResponse({
+        range: options.range,
+        horizon: options.horizon,
+        comboId: options.comboId,
+        now: options.now,
+        combos: combosSnapshot,
+      }),
     buildProviderHealthAutopilotReport({ includeHealthy: false, includeActions: false }),
   ]);
 
@@ -451,7 +477,8 @@ export async function buildComboHealthAutopilotReport(
   const healthyCount = allCombos.filter((combo) => combo.state === "healthy").length;
   const issueCount = allCombos.reduce((sum, combo) => sum + combo.issues.length, 0);
   const actionableCount = allCombos.reduce(
-    (sum, combo) => sum + combo.issues.filter((entry) => entry.actions.length > 0).length,
+    (sum, combo) =>
+      sum + combo.issues.reduce((issueSum, issue) => issueSum + issue.actions.length, 0),
     0
   );
 
