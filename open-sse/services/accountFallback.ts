@@ -828,6 +828,16 @@ function computeDurationMs(match: RegExpMatchArray): number | null {
   return totalMs > 0 ? totalMs : null;
 }
 
+function isSubscriptionQuotaText(lower: string): boolean {
+  return (
+    lower.includes("usage limit reached") ||
+    lower.includes("usage limit has been") ||
+    lower.includes("claude pro usage limit") ||
+    lower.includes("you've reached your usage limit") ||
+    lower.includes("you have reached your usage limit")
+  );
+}
+
 // ─── Error Classification ───────────────────────────────────────────────────
 
 /**
@@ -850,11 +860,7 @@ export function classifyErrorText(errorText: unknown): RateLimitReasonValue {
     // "billing". Without these patterns the error was classified as a
     // transient RATE_LIMIT_EXCEEDED (~5s base cooldown), which cascades all
     // Pro accounts into a tight retry loop until the 5h window resets.
-    lower.includes("usage limit reached") ||
-    lower.includes("usage limit has been") ||
-    lower.includes("claude pro usage limit") ||
-    lower.includes("you've reached your usage limit") ||
-    lower.includes("you have reached your usage limit")
+    isSubscriptionQuotaText(lower)
   ) {
     return RateLimitReason.QUOTA_EXHAUSTED;
   }
@@ -1143,21 +1149,23 @@ export function checkFallbackError(
     // upstream retry hint (Retry-After header or ISO timestamp in the
     // body) when present, otherwise apply a 1h cooldown so all Pro
     // accounts on the same subscription tier stop cycling through tight
-    // retries until the window genuinely resets. (We deliberately do not
-    // use COOLDOWN_MS.paymentRequired here — that constant is 2 minutes,
-    // which is shorter than the recovery time of a subscription quota.)
+    // retries until the window genuinely resets. Generic quota-reset text
+    // still follows the provider profile's upstream-hint policy; this
+    // branch is only for known Claude subscription quota messages. (We
+    // deliberately do not use COOLDOWN_MS.paymentRequired here — that
+    // constant is 2 minutes, which is shorter than the recovery time of a
+    // subscription quota.)
     if (
-      profile?.useUpstreamRetryHints &&
       shouldUseQuotaSignal &&
       !isCreditsExhausted(errorStr) &&
       !isDailyQuotaExhausted(errorStr) &&
-      classifyErrorText(errorStr) === RateLimitReason.QUOTA_EXHAUSTED
+      isSubscriptionQuotaText(errorStr.toLowerCase())
     ) {
-      // For a quota error the upstream reset hint (Retry-After header or
-      // ISO timestamp embedded in the body) is the most accurate wait.
-      // We honor it even when the resilience profile does not opt-in to
-      // generic upstream retry hints — a subscription quota has a
-      // definite recovery time, not a best-effort transient backoff.
+      // For a subscription quota error the configured upstream reset hint
+      // (Retry-After header or ISO timestamp embedded in the body) is the
+      // most accurate wait. When upstream hints are disabled, keep the
+      // dedicated 1h subscription cooldown instead of falling through to
+      // the generic short 429 backoff.
       const hintMs = getUpstreamRetryHintMs();
       const SUBSCRIPTION_QUOTA_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
       return {
