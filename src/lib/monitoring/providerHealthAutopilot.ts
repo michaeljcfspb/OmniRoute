@@ -197,7 +197,8 @@ function sanitizeConnectionLabel(connection: JsonRecord): string {
     toString(connection.email) ||
     toString(connection.id) ||
     "connection";
-  return label.length > 80 ? `${label.slice(0, 77)}…` : label;
+  const masked = label.includes("@") ? label.replace(/^(.).+(@.+)$/, "$1***$2") : label;
+  return masked.length > 80 ? `${masked.slice(0, 77)}…` : masked;
 }
 
 function isTerminalConnection(connection: JsonRecord): boolean {
@@ -350,7 +351,13 @@ export async function buildProviderHealthAutopilotReport(
         label,
         testStatus: connection.testStatus ?? null,
         lastErrorType: connection.lastErrorType ?? null,
+        lastErrorAt: connection.lastErrorAt ?? null,
+        lastErrorHash: toString(connection.lastError)
+          ? hashPreconditions(toString(connection.lastError))
+          : null,
         errorCode: connection.errorCode ?? null,
+        backoffLevel: connection.backoffLevel ?? null,
+        updatedAt: connection.updatedAt ?? null,
         rateLimitedUntil: connection.rateLimitedUntil ?? null,
         remainingMs: cooldownUntil ? Math.max(0, cooldownUntil - now) : 0,
         isActive: connection.isActive !== false,
@@ -441,24 +448,33 @@ export async function buildProviderHealthAutopilotReport(
       const connectionId = toString(lockout.connectionId);
       const model = toString(lockout.model);
       if (!connectionId || !model) continue;
+      const connection = providerConnections.find((entry) => entry.id === connectionId);
+      const terminalConnection = connection ? isTerminalConnection(connection) : false;
       const target = { provider, connectionId, model };
       const evidence = {
         reason: lockout.reason ?? null,
         remainingMs: toNumber(lockout.remainingMs) ?? 0,
         failureCount: toNumber(lockout.failureCount) ?? 0,
+        lockedAt: lockout.lockedAt ?? null,
+        until: lockout.until ?? null,
+        connectionExists: Boolean(connection),
+        terminalConnection,
       };
       issues.push({
         id: issueId("model_lockout", target),
-        severity: "warning",
+        severity: terminalConnection || !connection ? "info" : "warning",
         kind: "model_lockout",
         title: `${model} is locked out for one connection`,
         recommendation:
-          "Clear the model lockout after confirming the model quota or availability recovered.",
+          terminalConnection || !connection
+            ? "Resolve the connection state before clearing model-level lockouts."
+            : "Clear the model lockout after confirming the model quota or availability recovered.",
         target,
         evidence,
-        actions: includeActions
-          ? [action("clear_model_lockout", "Clear model lockout", "medium", target, evidence)]
-          : [],
+        actions:
+          includeActions && connection && !terminalConnection
+            ? [action("clear_model_lockout", "Clear model lockout", "medium", target, evidence)]
+            : [],
       });
     }
 
@@ -466,9 +482,13 @@ export async function buildProviderHealthAutopilotReport(
       const status = toString(snapshot.status);
       if (!status || !["warning", "exhausted", "error"].includes(status)) continue;
       const connectionId = toString(snapshot.accountId) ?? undefined;
+      const sessionId = toString(snapshot.sessionId) ?? undefined;
       const target = { provider, ...(connectionId ? { connectionId } : {}) };
       issues.push({
-        id: issueId("quota_monitor_warning", target),
+        id: issueId("quota_monitor_warning", {
+          ...target,
+          ...(sessionId ? { model: sessionId } : {}),
+        }),
         severity: status === "warning" ? "warning" : "critical",
         kind: "quota_monitor_warning",
         title: `Quota monitor reports ${status}`,
@@ -672,7 +692,20 @@ export async function executeProviderHealthAutopilotAction(
           body: { success: false, error: "connectionId and model are required" },
         };
       }
+      const connection = (await getProviderConnectionById(connectionId)) as JsonRecord | null;
+      if (!connection || connection.provider !== provider) {
+        return { status: 404, body: { success: false, error: "connection not found" } };
+      }
+      if (isTerminalConnection(connection)) {
+        return { status: 409, body: { success: false, error: "terminal connection state" } };
+      }
       const removed = clearModelLock(provider, connectionId, model);
+      if (!removed) {
+        return {
+          status: 409,
+          body: { success: false, error: "model lockout changed; refresh before retrying" },
+        };
+      }
       changed = { removed };
       break;
     }

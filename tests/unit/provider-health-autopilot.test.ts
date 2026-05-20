@@ -18,6 +18,7 @@ const providersDb = await import("../../src/lib/db/providers.ts");
 const autopilot = await import("../../src/lib/monitoring/providerHealthAutopilot.ts");
 const actionsRoute = await import("../../src/app/api/providers/health-autopilot/actions/route.ts");
 const reportRoute = await import("../../src/app/api/providers/health-autopilot/route.ts");
+const routeGuard = await import("../../src/server/authz/routeGuard.ts");
 const accountFallback = await import("@omniroute/open-sse/services/accountFallback");
 
 const PROVIDER = "autopilot-test-provider";
@@ -149,6 +150,7 @@ test("provider health autopilot action clears cooldown with stale-state protecti
   const applied = await actionsRoute.POST(
     await makeManagementSessionRequest("http://localhost/api/providers/health-autopilot/actions", {
       method: "POST",
+      headers: { origin: "http://localhost", "sec-fetch-site": "same-origin" },
       body: {
         type: action.type,
         target: action.target,
@@ -168,6 +170,41 @@ test("provider health autopilot action clears cooldown with stale-state protecti
   assert.equal(updated.rateLimitedUntil, undefined);
   assert.equal(updated.lastError, undefined);
   assert.equal(updated.testStatus, "active");
+});
+
+test("provider health autopilot action rejects cross-site mutations", async () => {
+  await enableManagementAuth();
+  const connection = await createCooldownConnection();
+  const report = await autopilot.buildProviderHealthAutopilotReport({
+    provider: PROVIDER,
+    includeHealthy: true,
+  });
+  const action = findAction(report, "clear_connection_cooldown");
+  assert.ok(action);
+
+  const response = await actionsRoute.POST(
+    await makeManagementSessionRequest("http://localhost/api/providers/health-autopilot/actions", {
+      method: "POST",
+      headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+      body: {
+        type: action.type,
+        target: action.target,
+        preconditionsHash: action.preconditionsHash,
+        confirm: true,
+      },
+    })
+  );
+
+  assert.equal(response.status, 403);
+  const unchanged = (await providersDb.getProviderConnectionById(String(connection.id))) as Record<
+    string,
+    unknown
+  >;
+  assert.ok(unchanged.rateLimitedUntil);
+});
+
+test("provider health autopilot action route is always protected", () => {
+  assert.equal(routeGuard.isAlwaysProtectedPath("/api/providers/health-autopilot/actions"), true);
 });
 
 test("provider health autopilot report route requires management auth", async () => {

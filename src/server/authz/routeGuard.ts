@@ -21,6 +21,7 @@ export const LOCAL_ONLY_API_PREFIXES: ReadonlyArray<string> = [
 
 export const ALWAYS_PROTECTED_API_PATHS: ReadonlyArray<string> = [
   "/api/shutdown",
+  "/api/providers/health-autopilot/actions",
   "/api/settings/database",
 ];
 

@@ -525,13 +525,15 @@ export function getModelLockoutInfo(
   };
 }
 
-type ModelLockoutInfo = {
+export type ModelLockoutInfo = {
   provider: string;
   connectionId: string;
   model: string;
   reason: string;
   remainingMs: number;
   failureCount: number;
+  lockedAt: string;
+  until: number;
 };
 
 /**
@@ -544,7 +546,8 @@ export function getAllModelLockouts(): ModelLockoutInfo[] {
     cleanupModelLockKey(key, now);
   }
   for (const [key, entry] of modelLockouts) {
-    const [provider, connectionId, model] = key.split(":");
+    const [provider, connectionId, ...modelParts] = key.split(":");
+    const model = modelParts.join(":");
     active.push({
       provider,
       connectionId,
@@ -552,6 +555,8 @@ export function getAllModelLockouts(): ModelLockoutInfo[] {
       reason: entry.reason,
       remainingMs: entry.until - now,
       failureCount: entry.failureCount,
+      lockedAt: new Date(entry.lockedAt).toISOString(),
+      until: entry.until,
     });
   }
   return active;
