@@ -23,7 +23,7 @@ const {
   getTerminalBatches,
 } = await import("../../src/lib/localDb.ts");
 const { getDbInstance } = await import("../../src/lib/db/core.ts");
-const { initBatchProcessor, stopBatchProcessor, processPendingBatches } =
+const { initBatchProcessor, stopBatchProcessor, processPendingBatches, waitForAllBatches } =
   await import("../../open-sse/services/batchProcessor.ts");
 const batchesRoute = await import("../../src/app/api/v1/batches/route.ts");
 const batchByIdRoute = await import("../../src/app/api/v1/batches/[id]/route.ts");
@@ -31,6 +31,11 @@ const batchCancelRoute = await import("../../src/app/api/v1/batches/[id]/cancel/
 const filesRoute = await import("../../src/app/api/v1/files/route.ts");
 const fileByIdRoute = await import("../../src/app/api/v1/files/[id]/route.ts");
 const fileContentRoute = await import("../../src/app/api/v1/files/[id]/content/route.ts");
+
+test.afterEach(async () => {
+  stopBatchProcessor();
+  await waitForAllBatches();
+});
 
 test("Batch API and Processing", async () => {
   // 0. Setup environment, mock provider and API key
