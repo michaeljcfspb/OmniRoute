@@ -993,7 +993,70 @@ test(
 );
 
 test(
-  "full upgrade simulation: all 3 renumbered migrations reconciled without CRITICAL warnings",
+  "reconcileRenumberedMigrations moves legacy 056 manifest routing marker to 059",
+  serial,
+  async () => {
+    const runner = await importFresh("src/lib/db/migrationRunner.ts");
+    const db = createDb();
+
+    try {
+      db.exec(`
+        CREATE TABLE _omniroute_migrations (
+          version TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+      db.prepare("INSERT INTO _omniroute_migrations (version, name) VALUES (?, ?)").run(
+        "056",
+        "manifest_routing"
+      );
+
+      const consoleErrors: string[] = [];
+      const originalError = console.error;
+      console.error = (...args: any[]) => {
+        consoleErrors.push(args.map(String).join(" "));
+      };
+
+      try {
+        withMockedMigrationFs(
+          {
+            "056_mcp_accessibility_compression.sql":
+              "CREATE TABLE IF NOT EXISTS mcp_accessibility_compression (id TEXT PRIMARY KEY);",
+            "059_manifest_routing.sql":
+              "CREATE TABLE IF NOT EXISTS manifest_routing (id TEXT PRIMARY KEY);",
+          },
+          () => runner.runMigrations(db)
+        );
+
+        assert.equal(
+          db.prepare("SELECT name FROM _omniroute_migrations WHERE version = ?").get("056")?.name,
+          "mcp_accessibility_compression"
+        );
+        assert.equal(
+          db.prepare("SELECT name FROM _omniroute_migrations WHERE version = ?").get("059")?.name,
+          "manifest_routing"
+        );
+
+        const renumberingWarnings = consoleErrors.filter(
+          (e) => e.includes("CRITICAL") && e.includes("renumbered")
+        );
+        assert.equal(
+          renumberingWarnings.length,
+          0,
+          `Expected no renumbering warnings, got: ${renumberingWarnings.join("; ")}`
+        );
+      } finally {
+        console.error = originalError;
+      }
+    } finally {
+      db.close();
+    }
+  }
+);
+
+test(
+  "full upgrade simulation: renumbered migrations are reconciled without CRITICAL warnings",
   serial,
   async () => {
     const runner = await importFresh("src/lib/db/migrationRunner.ts");
@@ -1014,6 +1077,7 @@ test(
         ["029", "provider_connection_max_concurrent"],
         ["032", "compression_analytics"],
         ["033", "compression_cache_stats"],
+        ["056", "manifest_routing"],
       ] as const;
       for (const [v, n] of oldMigrations) {
         db.prepare("INSERT INTO _omniroute_migrations (version, name) VALUES (?, ?)").run(v, n);
@@ -1050,6 +1114,10 @@ test(
               "CREATE TABLE IF NOT EXISTS compression_analytics (id TEXT PRIMARY KEY);",
             "039_compression_cache_stats.sql":
               "CREATE TABLE IF NOT EXISTS compression_cache_stats_table (id TEXT PRIMARY KEY);",
+            "056_mcp_accessibility_compression.sql":
+              "CREATE TABLE IF NOT EXISTS mcp_accessibility_compression (id TEXT PRIMARY KEY);",
+            "059_manifest_routing.sql":
+              "CREATE TABLE IF NOT EXISTS manifest_routing (id TEXT PRIMARY KEY);",
           },
           () => runner.runMigrations(db)
         );
@@ -1074,10 +1142,18 @@ test(
         const row039 = db
           .prepare("SELECT name FROM _omniroute_migrations WHERE version = ?")
           .get("039") as { name: string } | undefined;
+        const row056 = db
+          .prepare("SELECT name FROM _omniroute_migrations WHERE version = ?")
+          .get("056") as { name: string } | undefined;
+        const row059 = db
+          .prepare("SELECT name FROM _omniroute_migrations WHERE version = ?")
+          .get("059") as { name: string } | undefined;
 
         assert.equal(row034?.name, "compression_settings");
         assert.equal(row038?.name, "compression_analytics");
         assert.equal(row039?.name, "compression_cache_stats");
+        assert.equal(row056?.name, "mcp_accessibility_compression");
+        assert.equal(row059?.name, "manifest_routing");
       } finally {
         console.error = originalError;
       }

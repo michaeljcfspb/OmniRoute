@@ -142,7 +142,13 @@ const RENAMED_MIGRATION_COMPATIBILITY = [
   {
     fromVersion: "052",
     fromName: "manifest_routing",
-    toVersion: "056",
+    toVersion: "059",
+    toName: "manifest_routing",
+  },
+  {
+    fromVersion: "056",
+    fromName: "manifest_routing",
+    toVersion: "059",
     toName: "manifest_routing",
   },
 ] as const;
