@@ -1598,7 +1598,7 @@ test("handleComboChat standalone lkgp strategy updates LKGP after a successful c
   );
 
   assert.equal(result.ok, true);
-  assert.equal(persistedProvider, "openai");
+  assert.deepEqual(persistedProvider, { provider: "openai" });
 });
 
 test("handleComboChat auto strategy falls back to the full pool when tool filtering empties candidates", async () => {

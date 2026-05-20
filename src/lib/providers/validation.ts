@@ -780,14 +780,29 @@ async function validateGeminiLikeProvider({
   isLocal = false,
 }: any) {
   try {
+    if (!baseUrl) {
+      return { valid: false, error: "Missing base URL" };
+    }
+
+    const normalizedAuthType = String(authType || "query").toLowerCase();
+    const normalizedBaseUrl = String(baseUrl).replace(/\/$/, "");
     const requestUrl =
       typeof providerSpecificData?.modelsUrl === "string" &&
       providerSpecificData.modelsUrl.trim() !== ""
         ? providerSpecificData.modelsUrl.trim()
-        : `${baseUrl}/models`;
-    const urlWithKey =
-      authType === "query" ? `${requestUrl}?key=${encodeURIComponent(apiKey)}` : requestUrl;
-    const headers = authType === "header" ? { "x-goog-api-key": apiKey } : {};
+        : normalizedBaseUrl.endsWith("/models")
+          ? normalizedBaseUrl
+          : `${normalizedBaseUrl}/models`;
+    const headers: Record<string, string> = {};
+    let urlWithKey = requestUrl;
+
+    if (normalizedAuthType === "query") {
+      urlWithKey = `${requestUrl}?key=${encodeURIComponent(apiKey)}`;
+    } else if (normalizedAuthType === "header" || normalizedAuthType === "apikey") {
+      headers["x-goog-api-key"] = apiKey;
+    } else if (normalizedAuthType === "oauth" || normalizedAuthType === "bearer") {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
 
     const response = await validationRead(
       urlWithKey,
@@ -796,10 +811,6 @@ async function validateGeminiLikeProvider({
       },
       isLocal
     );
-
-    if (!baseUrl) {
-      return { valid: false, error: "Missing base URL" };
-    }
 
     if (response.ok) {
       return { valid: true, error: null };

@@ -2172,6 +2172,7 @@ export function providerAllowsOptionalApiKey(providerId: unknown): boolean {
     providerId === "petals" ||
     providerId === "pollinations" ||
     providerId === "copilot-web" ||
+    providerId === "veoaifree-web" ||
     providerId === "hackclub" ||
     isLocalProvider(providerId) ||
     isSelfHostedChatProvider(providerId) ||

@@ -414,6 +414,17 @@ async function resolveModelByProviderInference(modelId: string, extendedContext:
 
   const activeProviders = await getActiveProviderSet();
 
+  // Preserve historical behavior: OpenAI stays default when model exists there.
+  // Connection availability must not make unprefixed OpenAI models resolve to a
+  // different provider; callers can still force Codex with an explicit prefix.
+  if (providers.includes("openai")) {
+    return {
+      provider: "openai",
+      model: modelId,
+      extendedContext,
+    };
+  }
+
   if (
     activeProviders?.has("codex") &&
     !activeProviders.has("openai") &&
@@ -423,15 +434,6 @@ async function resolveModelByProviderInference(modelId: string, extendedContext:
     return {
       provider: "codex",
       model: resolveInferredProviderModel("codex", modelId),
-      extendedContext,
-    };
-  }
-
-  // Preserve historical behavior: OpenAI stays default when model exists there
-  if (providers.includes("openai")) {
-    return {
-      provider: "openai",
-      model: modelId,
       extendedContext,
     };
   }

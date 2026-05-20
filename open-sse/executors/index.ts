@@ -31,6 +31,7 @@ import { DeepSeekWebExecutor } from "./deepseek-web.ts";
 import { DeepSeekWebWithAutoRefreshExecutor } from "./deepseek-web-with-auto-refresh.ts";
 import { CopilotWebExecutor } from "./copilot-web.ts";
 import { VeoAIFreeWebExecutor } from "./veoaifree-web.ts";
+import { ClaudeWebExecutor } from "./claude-web.ts";
 
 const executors = {
   antigravity: new AntigravityExecutor(),
@@ -86,6 +87,8 @@ const executors = {
   copilot: new CopilotWebExecutor(), // Alias
   "veoaifree-web": new VeoAIFreeWebExecutor(),
   "veo-free": new VeoAIFreeWebExecutor(), // Alias
+  "claude-web": new ClaudeWebExecutor(),
+  "cw-web": new ClaudeWebExecutor(), // Alias
 };
 
 const defaultCache = new Map();
@@ -133,5 +136,6 @@ export { WindsurfExecutor } from "./windsurf.ts";
 export { DevinCliExecutor } from "./devin-cli.ts";
 export { CopilotWebExecutor } from "./copilot-web.ts";
 export { VeoAIFreeWebExecutor } from "./veoaifree-web.ts";
+export { ClaudeWebExecutor } from "./claude-web.ts";
 export { DeepSeekWebExecutor } from "./deepseek-web.ts";
 export { DeepSeekWebWithAutoRefreshExecutor } from "./deepseek-web-with-auto-refresh.ts";

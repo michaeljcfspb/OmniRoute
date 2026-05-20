@@ -1,0 +1,88 @@
+import { WEB_COOKIE_PROVIDERS } from "@/shared/constants/providers";
+
+export type WebSessionCredentialRequirement =
+  | {
+      kind: "cookie" | "token";
+      credentialName: string;
+      placeholder: string;
+      acceptsFullCookieHeader: boolean;
+    }
+  | {
+      kind: "none";
+      credentialName: "";
+      placeholder: "";
+      acceptsFullCookieHeader: false;
+    };
+
+export const WEB_SESSION_CREDENTIAL_REQUIREMENTS = {
+  "chatgpt-web": {
+    kind: "cookie",
+    credentialName: "__Secure-next-auth.session-token",
+    placeholder: "__Secure-next-auth.session-token=...",
+    acceptsFullCookieHeader: true,
+  },
+  "grok-web": {
+    kind: "cookie",
+    credentialName: "sso",
+    placeholder: "sso=...",
+    acceptsFullCookieHeader: true,
+  },
+  "gemini-web": {
+    kind: "cookie",
+    credentialName: "__Secure-1PSID (optional: __Secure-1PSIDTS)",
+    placeholder: "__Secure-1PSID=...; __Secure-1PSIDTS=...",
+    acceptsFullCookieHeader: true,
+  },
+  "perplexity-web": {
+    kind: "cookie",
+    credentialName: "__Secure-next-auth.session-token",
+    placeholder: "__Secure-next-auth.session-token=...",
+    acceptsFullCookieHeader: true,
+  },
+  "blackbox-web": {
+    kind: "cookie",
+    credentialName: "__Secure-authjs.session-token",
+    placeholder: "__Secure-authjs.session-token=...; other=value",
+    acceptsFullCookieHeader: true,
+  },
+  "muse-spark-web": {
+    kind: "cookie",
+    credentialName: "abra_sess",
+    placeholder: "abra_sess=...; other=value",
+    acceptsFullCookieHeader: true,
+  },
+  "deepseek-web": {
+    kind: "cookie",
+    credentialName: "ds_session_id",
+    placeholder: "ds_session_id=...",
+    acceptsFullCookieHeader: true,
+  },
+  "copilot-web": {
+    kind: "token",
+    credentialName: "access_token",
+    placeholder: "access_token=... or a DevTools HAR export",
+    acceptsFullCookieHeader: false,
+  },
+  "veoaifree-web": {
+    kind: "none",
+    credentialName: "",
+    placeholder: "",
+    acceptsFullCookieHeader: false,
+  },
+} satisfies Record<keyof typeof WEB_COOKIE_PROVIDERS, WebSessionCredentialRequirement>;
+
+export function getWebSessionCredentialRequirement(
+  providerId: unknown
+): WebSessionCredentialRequirement | null {
+  if (typeof providerId !== "string") return null;
+  return (
+    WEB_SESSION_CREDENTIAL_REQUIREMENTS[
+      providerId as keyof typeof WEB_SESSION_CREDENTIAL_REQUIREMENTS
+    ] ?? null
+  );
+}
+
+export function requiresWebSessionCredential(providerId: unknown): boolean {
+  const requirement = getWebSessionCredentialRequirement(providerId);
+  return !!requirement && requirement.kind !== "none";
+}

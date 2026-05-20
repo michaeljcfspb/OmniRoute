@@ -52,6 +52,28 @@ function countConfigured<T>(entries: ProviderEntry<T>[]) {
   };
 }
 
+type ProviderMessageTranslator = ((key: string, values?: Record<string, unknown>) => string) & {
+  has?: (key: string) => boolean;
+};
+
+function providerText(
+  t: ProviderMessageTranslator,
+  key: string,
+  fallback: string,
+  values?: Record<string, unknown>
+): string {
+  if (typeof t.has === "function" && t.has(key)) {
+    return t(key, values);
+  }
+  if (values) {
+    return Object.entries(values).reduce(
+      (acc, [name, value]) => acc.replaceAll(`{${name}}`, String(value)),
+      fallback
+    );
+  }
+  return fallback;
+}
+
 type ProviderBatchTestResult = {
   connectionId?: string;
   connectionName?: string;
@@ -140,6 +162,11 @@ export default function ProvidersPage() {
   const showSection = (category: string) => !activeCategory || activeCategory === category;
   const t = useTranslations("providers");
   const tc = useTranslations("common");
+  const webCookieProvidersDesc = providerText(
+    t,
+    "webCookieProvidersDesc",
+    "These providers use browser web sessions, cookies, or web tokens instead of API keys. Open a provider to add the required session credential."
+  );
   const ccCompatibleLabel = t("ccCompatibleLabel");
   const addCcCompatibleLabel = t("addCcCompatible");
 
@@ -1286,6 +1313,7 @@ export default function ProvidersPage() {
               {testingMode === "web-cookie" ? t("testing") : t("testAll")}
             </button>
           </div>
+          <p className="max-w-3xl text-sm text-text-muted">{webCookieProvidersDesc}</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {webCookieProviderEntries.map(({ providerId, provider, stats, toggleAuthType }) => (
               <ProviderCard

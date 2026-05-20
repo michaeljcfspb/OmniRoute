@@ -834,6 +834,14 @@ export async function getCallLogs(filter: any = {}) {
   if (filter.combo) {
     conditions.push("cl.combo_name IS NOT NULL");
   }
+  if (filter.since) {
+    conditions.push("cl.timestamp >= @since");
+    params.since = filter.since instanceof Date ? filter.since.toISOString() : String(filter.since);
+  }
+  if (filter.until) {
+    conditions.push("cl.timestamp <= @until");
+    params.until = filter.until instanceof Date ? filter.until.toISOString() : String(filter.until);
+  }
   if (filter.search) {
     conditions.push(`(
       cl.model LIKE @searchQ OR cl.path LIKE @searchQ OR cl.account LIKE @searchQ OR

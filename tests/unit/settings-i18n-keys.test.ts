@@ -7,7 +7,8 @@ import path from "node:path";
 const require = createRequire(import.meta.url);
 const en = require("../../src/i18n/messages/en.json");
 const zhCn = require("../../src/i18n/messages/zh-CN.json");
-const { SIDEBAR_SECTIONS } = await import("../../src/shared/constants/sidebarVisibility.ts");
+const { SIDEBAR_SECTIONS, getSectionItems } =
+  await import("../../src/shared/constants/sidebarVisibility.ts");
 
 const requiredSettingsKeys = [
   "adaptiveVolumeRouting",
@@ -116,7 +117,7 @@ test("English sidebar translations include every configured sidebar item", () =>
   const sidebarKeys = new Set(
     SIDEBAR_SECTIONS.flatMap((section) => [
       section.titleKey,
-      ...section.items.map((item) => item.i18nKey),
+      ...getSectionItems(section).map((item) => item.i18nKey),
     ])
   );
 

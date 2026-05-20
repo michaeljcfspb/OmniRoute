@@ -80,6 +80,21 @@ function isCodexNativeResponsesRequest(
   return metadataSource.toLowerCase().includes("codex");
 }
 
+async function hasOnlyActiveCodexAccount() {
+  try {
+    const { getProviderConnections } = await import("@/lib/db/providers");
+    const connections = await getProviderConnections({ isActive: true });
+    const providers = new Set(
+      connections
+        .map((connection: any) => String(connection?.provider || "").trim())
+        .filter(Boolean)
+    );
+    return providers.size === 1 && providers.has("codex");
+  } catch {
+    return false;
+  }
+}
+
 export async function resolveModelOrError(
   modelStr: string,
   body: any,
@@ -98,6 +113,18 @@ export async function resolveModelOrError(
   ) {
     log.info("ROUTING", `${modelStr} → codex/${modelInfo.model} (Codex native responses)`);
     modelInfo.provider = "codex";
+  }
+
+  if (
+    modelInfo.provider === "openai" &&
+    modelInfo.model === "gpt-5.5" &&
+    sourceFormat === "openai-responses" &&
+    !isCodexNativeResponsesRequest(body, endpointPath, requestHeaders) &&
+    (await hasOnlyActiveCodexAccount())
+  ) {
+    log.info("ROUTING", `${modelStr} → codex/gpt-5.5-medium (Codex-only active account)`);
+    modelInfo.provider = "codex";
+    modelInfo.model = "gpt-5.5-medium";
   }
 
   // Forced-rewrite: codex provider doesn't serve DeepSeek/Qwen/Kimi/etc. Reroute

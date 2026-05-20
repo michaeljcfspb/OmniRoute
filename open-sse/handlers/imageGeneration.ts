@@ -105,6 +105,12 @@ const BFL_EDIT_MODELS = new Set([
 
 const BFL_FAILURE_STATUSES = new Set(["Error", "Failed", "Content Moderated", "Request Moderated"]);
 
+function formatImageProviderError(err) {
+  const sanitized = sanitizeErrorMessage(err);
+  const message = (sanitized || "").replace(/^Error:\s*/i, "").trim();
+  return message ? `Image provider error: ${message}` : "Image provider error";
+}
+
 const STABILITY_GENERATION_ENDPOINTS = {
   "sd3.5-large": "/v2beta/stable-image/generate/sd3",
   "sd3.5-large-turbo": "/v2beta/stable-image/generate/sd3",
@@ -726,7 +732,7 @@ async function handleGeminiImageGeneration({ model, providerConfig, body, creden
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: formatImageProviderError(err),
     };
   }
 }
@@ -2358,7 +2364,7 @@ async function fetchImageEndpoint(url, headers, body, provider, log) {
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: formatImageProviderError(err),
     };
   }
 }
@@ -2456,7 +2462,7 @@ async function handleHyperbolicImageGeneration({
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: formatImageProviderError(err),
     };
   }
 }
@@ -2714,7 +2720,7 @@ async function handleNanoBananaImageGeneration({
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: formatImageProviderError(err),
     };
   }
 }
@@ -2910,7 +2916,7 @@ async function handleSDWebUIImageGeneration({ model, provider, providerConfig, b
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: formatImageProviderError(err),
     };
   }
 }
