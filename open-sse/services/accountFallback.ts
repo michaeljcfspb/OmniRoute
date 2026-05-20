@@ -1161,12 +1161,13 @@ export function checkFallbackError(
       !isDailyQuotaExhausted(errorStr) &&
       isSubscriptionQuotaText(errorStr.toLowerCase())
     ) {
-      // For a subscription quota error the configured upstream reset hint
-      // (Retry-After header or ISO timestamp embedded in the body) is the
-      // most accurate wait. When upstream hints are disabled, keep the
-      // dedicated 1h subscription cooldown instead of falling through to
-      // the generic short 429 backoff.
-      const hintMs = getUpstreamRetryHintMs();
+      // For a subscription quota error an upstream reset hint is the most
+      // accurate wait. Header hints follow the profile policy via
+      // getUpstreamRetryHintMs(); precise body timestamps remain safe for
+      // this dedicated branch because it only handles known subscription
+      // quota messages. When no hint is available, keep the dedicated 1h
+      // cooldown instead of falling through to the generic short 429 backoff.
+      const hintMs = getUpstreamRetryHintMs() ?? parseRetryFromErrorText(errorStr) ?? null;
       const SUBSCRIPTION_QUOTA_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
       return {
         shouldFallback: true,
