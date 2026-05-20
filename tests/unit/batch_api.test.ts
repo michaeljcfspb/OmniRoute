@@ -726,7 +726,7 @@ test("Files and batches routes expose explicit CORS preflight handlers", async (
   }
 });
 
-test("Batch by-id route does not expose ownerless records to anonymous requests", async () => {
+test("Batch by-id route exposes ownerless records to anonymous requests", async () => {
   const file = createFile({
     bytes: 2,
     filename: "ownerless.jsonl",
@@ -745,8 +745,11 @@ test("Batch by-id route does not expose ownerless records to anonymous requests"
     new Request(`http://localhost/api/v1/batches/${batch.id}`),
     { params: Promise.resolve({ id: batch.id }) }
   );
+  const body = await response.json();
 
-  assert.strictEqual(response.status, 404);
+  assert.strictEqual(response.status, 200);
+  assert.strictEqual(body.id, batch.id);
+  assert.strictEqual(body.status, "validating");
 });
 
 test("Batch Cancel API", async () => {

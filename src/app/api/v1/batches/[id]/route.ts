@@ -43,7 +43,7 @@ function scopeCheck(
   recordApiKeyId: string | null | undefined
 ): boolean {
   if (scope.isSessionAuth) return true;
-  if (recordApiKeyId === null || recordApiKeyId === undefined) return scope.apiKeyId !== null;
+  if (recordApiKeyId === null || recordApiKeyId === undefined) return true;
   return recordApiKeyId === scope.apiKeyId;
 }
 
