@@ -41,7 +41,7 @@ type CallLogEntry = {
   comboName?: string;
   comboStepId?: string | null;
   comboExecutionKey?: string | null;
-  errorSummary?: string | null;
+  error?: string | null;
 };
 
 const TIME_RANGES: TimeRange[] = ["1h", "24h", "7d", "30d"];
@@ -205,7 +205,7 @@ function RecentLogRow({ log }: { log: CallLogEntry }) {
         </div>
         <div className="text-xs text-text-muted">{fmtMs(log.duration)}</div>
       </div>
-      {log.errorSummary && <p className="mt-1 text-xs text-red-300">{log.errorSummary}</p>}
+      {log.error && <p className="mt-1 text-xs text-red-300">{log.error}</p>}
     </div>
   );
 }
@@ -431,7 +431,7 @@ export default function ComboControlCenterClient({ comboId }: { comboId: string 
                   className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface px-3 py-2"
                 >
                   <span className="text-sm text-text-muted">{key}</span>
-                  <code className="max-w-[180px] truncate text-xs text-text-main">
+                  <code className="max-w-45 truncate text-xs text-text-main">
                     {typeof value === "object" ? JSON.stringify(value) : String(value)}
                   </code>
                 </div>
