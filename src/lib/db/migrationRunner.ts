@@ -154,6 +154,12 @@ const RENAMED_MIGRATION_COMPATIBILITY = [
     toName: "session_account_affinity",
   },
   {
+    fromVersion: "051",
+    fromName: "usage_history_service_tier",
+    toVersion: "054",
+    toName: "usage_history_service_tier",
+  },
+  {
     fromVersion: "052",
     fromName: "manifest_routing",
     toVersion: "059",
