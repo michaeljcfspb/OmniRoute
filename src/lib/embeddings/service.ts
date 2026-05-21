@@ -15,6 +15,7 @@ import { getProviderNodes, getComboByName, getCombos, getDatabaseSettings } from
 import { handleComboChat } from "@omniroute/open-sse/services/combo.ts";
 
 type ValidatedEmbeddingBody = Record<string, unknown> & { model: string };
+type ProviderCredentialsResult = Awaited<ReturnType<typeof getProviderCredentials>>;
 
 export interface EmbeddingHandlerOptions {
   clientRawRequest?: {
@@ -37,7 +38,7 @@ export async function createEmbeddingResponse(
     try {
       const combo = await getComboByName(modelStr);
       if (combo) {
-        let allCombos = [];
+        let allCombos: Awaited<ReturnType<typeof getCombos>> = [];
         try {
           allCombos = await getCombos();
         } catch {}
@@ -57,9 +58,11 @@ export async function createEmbeddingResponse(
               connectionId: target?.connectionId || options.connectionId,
             });
           },
+          isModelAvailable: undefined,
           log,
           settings,
           allCombos,
+          relayOptions: undefined,
           signal: undefined,
         });
       }
@@ -146,7 +149,7 @@ export async function createEmbeddingResponse(
     );
   }
 
-  let credentials = null;
+  let credentials: ProviderCredentialsResult | null = null;
   if (providerConfig.authType !== "none") {
     credentials = await getProviderCredentials(credentialsProviderId);
     if (!credentials) {
@@ -155,7 +158,7 @@ export async function createEmbeddingResponse(
         `No credentials for embedding provider: ${provider}`
       );
     }
-    if (credentials.allRateLimited) {
+    if ("allRateLimited" in credentials && credentials.allRateLimited) {
       return unavailableResponse(
         HTTP_STATUS.RATE_LIMITED,
         `[${provider}] All accounts rate limited`,

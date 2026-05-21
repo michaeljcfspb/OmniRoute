@@ -38,7 +38,7 @@ export function createBetterSqliteAdapter(db: import("better-sqlite3").Database)
     },
 
     backup(destination: string): Promise<void> {
-      return db.backup(destination);
+      return db.backup(destination).then(() => undefined);
     },
 
     checkpoint(mode = "TRUNCATE"): void {

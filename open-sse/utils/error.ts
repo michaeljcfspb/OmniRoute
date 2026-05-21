@@ -210,12 +210,12 @@ export function parseAntigravityRetryTime(message) {
  * @param {string} provider - Provider name (for Antigravity-specific parsing)
  * @returns {Promise<{statusCode: number, message: string, retryAfterMs: number|null, responseBody: unknown}>}
  */
-export async function parseUpstreamError(response, provider = null) {
-  let message = "";
-  let retryAfterMs = null;
-  let responseBody = null;
-  let errorCode = undefined;
-  let errorType = undefined;
+export async function parseUpstreamError(response: Response, provider: string | null = null) {
+  let message: unknown = "";
+  let retryAfterMs: number | null = null;
+  let responseBody: unknown = null;
+  let errorCode: unknown = undefined;
+  let errorType: unknown = undefined;
 
   try {
     const text = await response.text();

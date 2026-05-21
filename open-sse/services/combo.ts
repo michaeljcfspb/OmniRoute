@@ -124,6 +124,20 @@ type QuotaFetchCacheConfig = {
   quotaCacheMaxStaleMs: number;
 };
 type ResetWindowConfig = ReturnType<typeof resolveResetWindowConfig>;
+type ComboRetryAfter = string | number | Date;
+type ComboErrorBody = {
+  error?: { code?: string | null; message?: string | null } | string;
+  message?: string | null;
+  retryAfter?: ComboRetryAfter | null;
+} | null;
+
+function toRetryAfterDisplayValue(value: ComboRetryAfter): string | Date {
+  if (typeof value !== "number") return value;
+  if (value > 0 && value < 1_000_000_000) {
+    return new Date(Date.now() + value * 1000);
+  }
+  return new Date(value);
+}
 
 export type ResolvedComboTarget = {
   kind: "model";
@@ -304,7 +318,7 @@ function buildExecutionKey(path: string[], stepId: string): string {
   return [...path, stepId].join(">");
 }
 
-function normalizeRuntimeStep(entry, comboName, index, allCombos, path = []) {
+function normalizeRuntimeStep(entry, comboName, index, allCombos, path: string[] = []) {
   const step = normalizeComboStep(entry, {
     comboName,
     index,
@@ -349,7 +363,7 @@ function getDirectComboTargets(combo) {
   );
 }
 
-function getTopLevelRuntimeSteps(combo, allCombos, path = []) {
+function getTopLevelRuntimeSteps(combo, allCombos, path: string[] = []) {
   return (combo.models || [])
     .map((entry, index) => normalizeRuntimeStep(entry, combo.name, index, allCombos, path))
     .filter((entry): entry is ComboRuntimeStep => entry !== null);
@@ -366,6 +380,10 @@ function getCompositeTierStepOrder(combo): string[] {
   const orderedStepIds: string[] = [];
   const visitedTiers = new Set<string>();
   const seenStepIds = new Set<string>();
+  type CompositeTierEntry = readonly [
+    string,
+    { readonly stepId: string; readonly fallbackTier: string | null },
+  ];
   const tierEntries = new Map(
     Object.entries(tiers)
       .map(([tierName, rawTier]) => {
@@ -376,10 +394,10 @@ function getCompositeTierStepOrder(combo): string[] {
         if (!normalizedTierName || !stepId) return null;
         return [normalizedTierName, { stepId, fallbackTier }] as const;
       })
-      .filter(Boolean)
+      .filter((entry): entry is CompositeTierEntry => entry !== null)
   );
 
-  let currentTier = defaultTier;
+  let currentTier: string | null = defaultTier;
   while (currentTier && tierEntries.has(currentTier) && !visitedTiers.has(currentTier)) {
     visitedTiers.add(currentTier);
     const entry = tierEntries.get(currentTier);
@@ -429,11 +447,11 @@ function orderRuntimeStepsByCompositeTiers(steps: ComboRuntimeStep[], combo): Co
   return ordered;
 }
 
-function getOrderedTopLevelRuntimeSteps(combo, allCombos, path = []) {
+function getOrderedTopLevelRuntimeSteps(combo, allCombos, path: string[] = []) {
   return orderRuntimeStepsByCompositeTiers(getTopLevelRuntimeSteps(combo, allCombos, path), combo);
 }
 
-function expandRuntimeStep(step, allCombos, visited = new Set(), depth = 0, path = []) {
+function expandRuntimeStep(step, allCombos, visited = new Set(), depth = 0, path: string[] = []) {
   if (step.kind === "model") return [step];
   if (depth > MAX_COMBO_DEPTH) return [];
 
@@ -452,7 +470,7 @@ export function resolveNestedComboTargets(
   allCombos,
   visited = new Set(),
   depth = 0,
-  path = []
+  path: string[] = []
 ) {
   const directTargets = (combo.models || [])
     .map((entry, index) => normalizeRuntimeStep(entry, combo.name, index, null, path))
@@ -546,7 +564,7 @@ export function resolveNestedComboModels(combo, allCombos, visited = new Set(), 
   visited.add(combo.name);
 
   const combos = Array.isArray(allCombos) ? allCombos : allCombos?.combos || [];
-  const resolved = [];
+  const resolved: string[] = [];
 
   for (const entry of combo.models || []) {
     const modelName = normalizeModelEntry(entry).model;
@@ -585,13 +603,13 @@ function orderTargetsForWeightedFallback<T extends { executionKey: string; weigh
   targets: T[],
   selectedExecutionKey: string,
   preserveExistingOrder = false
-) {
+): T[] {
   const selected = targets.find((target) => target.executionKey === selectedExecutionKey);
   const rest = targets.filter((target) => target.executionKey !== selectedExecutionKey);
   if (!preserveExistingOrder) {
     rest.sort((a, b) => b.weight - a.weight);
   }
-  return [selected, ...rest].filter(Boolean);
+  return selected ? [selected, ...rest] : rest;
 }
 
 // shuffleArray and getNextModelFromDeck moved to src/shared/utils/shuffleDeck.ts
@@ -1839,7 +1857,7 @@ function scoreAutoTargets(
       const factors = calculateFactors(
         candidate as ProviderCandidate,
         candidates,
-        taskType,
+        taskType ?? "general",
         getTaskFitness
       );
       return {
@@ -1847,7 +1865,7 @@ function scoreAutoTargets(
         score: calculateScore(factors, weights),
       };
     })
-    .filter(Boolean)
+    .filter((entry): entry is { target: ResolvedComboTarget; score: number } => entry !== null)
     .sort((a, b) => b.score - a.score);
 }
 
@@ -2196,8 +2214,8 @@ export async function handleComboChat({
       resetWindowConfig
     );
     if (candidates.length > 0) {
-      let selectedProvider = null;
-      let selectedModel = null;
+      let selectedProvider: string | null = null;
+      let selectedModel: string | null = null;
       let selectionReason = "";
 
       if (routingStrategy !== "rules") {
@@ -2250,7 +2268,9 @@ export async function handleComboChat({
         eligibleTargets[0];
 
       orderedTargets = dedupeTargetsByExecutionKey(
-        [selectedTarget, ...rankedTargets, ...eligibleTargets].filter(Boolean)
+        [selectedTarget, ...rankedTargets, ...eligibleTargets].filter(
+          (entry): entry is ResolvedComboTarget => entry !== undefined && entry !== null
+        )
       );
 
       log.info(
@@ -2430,9 +2450,9 @@ export async function handleComboChat({
       }
     }
 
-    let lastError = null;
-    let earliestRetryAfter = null;
-    let lastStatus = null;
+    let lastError: string | null = null;
+    let earliestRetryAfter: ComboRetryAfter | null = null;
+    let lastStatus: number | null = null;
     const startTime = Date.now();
     let fallbackCount = 0;
     let recordedAttempts = 0;
@@ -2561,7 +2581,11 @@ export async function handleComboChat({
             if (connectionId) {
               const quotaInfo = await fetchCodexQuota(connectionId).catch(() => null);
               if (quotaInfo) {
-                const resetCandidates = [quotaInfo.window5h?.resetAt, quotaInfo.window7d?.resetAt]
+                const resetCandidates = [
+                  quotaInfo.windows?.session?.resetAt,
+                  quotaInfo.windows?.weekly?.resetAt,
+                  quotaInfo.resetAt,
+                ]
                   .filter((value): value is string => typeof value === "string" && value.length > 0)
                   .sort((a, b) => a.localeCompare(b));
                 const handoffSourceMessages =
@@ -2609,8 +2633,8 @@ export async function handleComboChat({
 
         // Extract error info from response
         let errorText = result.statusText || "";
-        let errorBody = null;
-        let retryAfter = null;
+        let errorBody: ComboErrorBody = null;
+        let retryAfter: ComboRetryAfter | null = null;
         try {
           const cloned = result.clone();
           try {
@@ -2618,8 +2642,12 @@ export async function handleComboChat({
             if (text) {
               errorText = text.substring(0, 500);
               errorBody = JSON.parse(text);
+              const parsedError = errorBody?.error;
               errorText =
-                errorBody?.error?.message || errorBody?.error || errorBody?.message || errorText;
+                (typeof parsedError === "object" && parsedError?.message) ||
+                (typeof parsedError === "string" ? parsedError : null) ||
+                errorBody?.message ||
+                errorText;
               retryAfter = errorBody?.retryAfter || null;
             }
           } catch {
@@ -2779,7 +2807,7 @@ export async function handleComboChat({
     const msg = lastError || "All combo models unavailable";
 
     if (earliestRetryAfter) {
-      const retryHuman = formatRetryAfter(earliestRetryAfter);
+      const retryHuman = formatRetryAfter(toRetryAfterDisplayValue(earliestRetryAfter));
       log.warn("COMBO", `All models failed | ${msg} (${retryHuman})`);
       return unavailableResponse(status, msg, earliestRetryAfter, retryHuman);
     }
@@ -2836,9 +2864,9 @@ async function handleRoundRobinCombo({
 
   const clientRequestedStream = body?.stream === true;
   const startTime = Date.now();
-  let lastError = null;
-  let lastStatus = null;
-  let earliestRetryAfter = null;
+  let lastError: string | null = null;
+  let lastStatus: number | null = null;
+  let earliestRetryAfter: ComboRetryAfter | null = null;
   let globalAttempts = 0;
   let fallbackCount = 0;
   let recordedAttempts = 0;
@@ -2987,12 +3015,8 @@ async function handleRoundRobinCombo({
 
         // Extract error info
         let errorText = result.statusText || "";
-        let retryAfter = null;
-        let errorBody: {
-          error?: { code?: string | null; message?: string | null } | string;
-          message?: string | null;
-          retryAfter?: number | string | null;
-        } | null = null;
+        let retryAfter: ComboRetryAfter | null = null;
+        let errorBody: ComboErrorBody = null;
         try {
           const cloned = result.clone();
           try {
@@ -3179,7 +3203,7 @@ async function handleRoundRobinCombo({
   const msg = lastError || "All round-robin combo models unavailable";
 
   if (earliestRetryAfter) {
-    const retryHuman = formatRetryAfter(earliestRetryAfter);
+    const retryHuman = formatRetryAfter(toRetryAfterDisplayValue(earliestRetryAfter));
     log.warn("COMBO-RR", `All models failed | ${msg} (${retryHuman})`);
     return unavailableResponse(status, msg, earliestRetryAfter, retryHuman);
   }
