@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && format('refs/tags/v{0}', inputs.version) || '' }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && (startsWith(inputs.version, 'v') && format('refs/tags/{0}', inputs.version) || format('refs/tags/v{0}', inputs.version)) || '' }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a
