@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
 import NotificationToast from "../NotificationToast";
+import Breadcrumbs from "../Breadcrumbs";
 import MaintenanceBanner from "../MaintenanceBanner";
 import { useIsElectron } from "@/shared/hooks/useElectron";
 
@@ -77,7 +78,10 @@ export default function DashboardLayout({ children }) {
         <Header onMenuClick={() => setSidebarOpen(true)} />
         {!isE2EMode && <MaintenanceBanner />}
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar p-4 sm:p-6 lg:p-10">
-          <div className="max-w-7xl mx-auto w-full">{children}</div>
+          <div className="max-w-7xl mx-auto w-full">
+            <Breadcrumbs />
+            {children}
+          </div>
         </div>
       </main>
 

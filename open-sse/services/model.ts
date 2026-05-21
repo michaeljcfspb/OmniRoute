@@ -32,6 +32,9 @@ for (const [id, alias] of Object.entries(PROVIDER_ID_TO_ALIAS)) {
 // Provider-scoped legacy model aliases. Used to normalize provider/model inputs
 // and keep backward compatibility when upstream IDs change.
 const PROVIDER_MODEL_ALIASES: ProviderModelAliasMap = {
+  openai: {
+    "gpt-4o-mini": "gpt-4o-mini",
+  },
   github: {
     "claude-4.5-opus": "claude-opus-4-5-20251101",
     "claude-opus-4.5": "claude-opus-4-5-20251101",
@@ -166,8 +169,13 @@ function hasKnownProviderModel(providerOrAlias: string | null | undefined, model
 
   if (models.some((entry) => entry?.id === modelId)) return true;
 
+  const aliases = PROVIDER_MODEL_ALIASES[providerId];
+  if (aliases && Object.prototype.hasOwnProperty.call(aliases, modelId)) return true;
+
   const canonicalModel = resolveProviderModelAlias(providerId, modelId);
-  return canonicalModel !== modelId && models.some((entry) => entry?.id === canonicalModel);
+  if (canonicalModel === modelId) return false;
+
+  return true;
 }
 
 function hasCodexPreferredUnprefixedModel(modelId: string) {
@@ -406,6 +414,17 @@ async function resolveModelByProviderInference(modelId: string, extendedContext:
 
   const activeProviders = await getActiveProviderSet();
 
+  // Preserve historical behavior: OpenAI stays default when model exists there.
+  // Connection availability must not make unprefixed OpenAI models resolve to a
+  // different provider; callers can still force Codex with an explicit prefix.
+  if (providers.includes("openai")) {
+    return {
+      provider: "openai",
+      model: modelId,
+      extendedContext,
+    };
+  }
+
   if (
     activeProviders?.has("codex") &&
     !activeProviders.has("openai") &&
@@ -419,13 +438,8 @@ async function resolveModelByProviderInference(modelId: string, extendedContext:
     };
   }
 
-  // Preserve historical behavior: OpenAI stays default when model exists there
-  if (
-    providers.includes("openai") ||
-    /^gpt-/i.test(modelId) ||
-    /^o1/i.test(modelId) ||
-    /^o3/i.test(modelId)
-  ) {
+  // Fallback for newly released OpenAI-family model IDs that may not be in the local catalog yet.
+  if (/^gpt-/i.test(modelId) || /^o1/i.test(modelId) || /^o3/i.test(modelId)) {
     return {
       provider: "openai",
       model: modelId,

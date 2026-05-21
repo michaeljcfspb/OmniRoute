@@ -12,10 +12,10 @@ import {
   stripClaudeCodeCompatibleEndpointSuffix,
   stripAnthropicMessagesSuffix,
 } from "@omniroute/open-sse/services/claudeCodeCompatible.ts";
-import { getExecutor } from "@omniroute/open-sse/executors/index.ts";
 import {
   isClaudeCodeCompatibleProvider,
   isAnthropicCompatibleProvider,
+  isLocalProvider,
   isOpenAICompatibleProvider,
   isSelfHostedChatProvider,
   providerAllowsOptionalApiKey,
@@ -38,11 +38,10 @@ import {
   buildAzureAiModelsUrl,
 } from "@omniroute/open-sse/config/azureAi.ts";
 import {
-  BEDROCK_DEFAULT_BASE_URL,
-  buildBedrockModelsUrl,
-  getBedrockValidationModelId,
-  normalizeBedrockBaseUrl,
-} from "@omniroute/open-sse/config/bedrock.ts";
+  discoverBedrockNativeModels,
+  isBedrockNativeApiError,
+  isBedrockNativeAuthError,
+} from "@omniroute/open-sse/services/bedrock.ts";
 import {
   DATAROBOT_DEFAULT_BASE_URL,
   buildDataRobotCatalogUrl,
@@ -294,7 +293,49 @@ function toValidationErrorResult(error: unknown) {
   };
 }
 
+async function validateBedrockProvider({ apiKey, providerSpecificData = {} }: any) {
+  if (!apiKey) {
+    return { valid: false, error: "Provider and API key required" };
+  }
+
+  try {
+    const discovery = await discoverBedrockNativeModels({
+      apiKey,
+      providerSpecificData,
+      fetcher: (url, init) => validationRead(url, init),
+    });
+    return {
+      valid: true,
+      error: null,
+      method: "bedrock_native_models",
+      warning: discovery.warnings[0] || null,
+    };
+  } catch (error: any) {
+    if (isBedrockNativeAuthError(error)) {
+      return { valid: false, error: "Invalid API key" };
+    }
+    if (isBedrockNativeApiError(error)) {
+      if (error.status === 429) {
+        return {
+          valid: true,
+          error: null,
+          warning: "Bedrock accepted the key but model discovery is rate limited",
+          method: "bedrock_native_models",
+        };
+      }
+      if (typeof error.status === "number" && error.status >= 500) {
+        return { valid: false, error: `Provider unavailable (${error.status})` };
+      }
+      if (typeof error.status === "number") {
+        return { valid: false, error: `Bedrock validation failed: ${error.status}` };
+      }
+    }
+    return toValidationErrorResult(error);
+  }
+}
+
 async function validateOpenAILikeProvider({
+  provider = "openai",
   apiKey,
   baseUrl,
   headers = {},
@@ -309,7 +350,7 @@ async function validateOpenAILikeProvider({
       ? customModelsUrl.startsWith("http")
         ? customModelsUrl
         : `${baseUrl.replace(/\/+$/, "")}/${customModelsUrl.replace(/^\/+/, "")}`
-      : `${baseUrl}/models`;
+      : addModelsSuffix(baseUrl);
 
     const requestUrl =
       typeof providerSpecificData?.modelsUrl === "string" &&
@@ -336,7 +377,7 @@ async function validateOpenAILikeProvider({
       return { valid: false, error: "Invalid API key" };
     }
 
-    const chatUrl = resolveChatUrl("openai", baseUrl, providerSpecificData);
+    const chatUrl = resolveChatUrl(provider, baseUrl, providerSpecificData);
     if (!chatUrl) {
       return { valid: false, error: `Validation failed: ${response.status}` };
     }
@@ -622,29 +663,35 @@ async function validateAnthropicLikeProvider({
   isLocal = false,
 }: any) {
   try {
-    const requestUrl =
-      typeof providerSpecificData?.modelsUrl === "string" &&
-      providerSpecificData.modelsUrl.trim() !== ""
-        ? providerSpecificData.modelsUrl.trim()
-        : `${baseUrl}/models`;
-
-    const response = await validationRead(
-      requestUrl,
-      {
-        headers: {
-          "anthropic-version": "2023-06-01",
-          ...headers,
-        },
-      },
-      isLocal
-    );
-
     if (!baseUrl) {
       return { valid: false, error: "Missing base URL" };
     }
 
     if (typeof apiKey === "string" && apiKey.startsWith("sk-ant-oat")) {
       return validateClaudeOAuthInline({ apiKey, modelId, providerSpecificData });
+    }
+
+    const requestUrl =
+      typeof providerSpecificData?.modelsUrl === "string" &&
+      providerSpecificData.modelsUrl.trim() !== ""
+        ? providerSpecificData.modelsUrl.trim()
+        : "";
+
+    if (requestUrl) {
+      const response = await validationRead(
+        requestUrl,
+        {
+          headers: {
+            "anthropic-version": "2023-06-01",
+            ...headers,
+          },
+        },
+        isLocal
+      );
+
+      if (response.status === 401 || response.status === 403) {
+        return { valid: false, error: "Invalid API key" };
+      }
     }
 
     const requestHeaders = applyCustomUserAgent(
@@ -703,6 +750,7 @@ async function validateClaudeOAuthInline({
     providerSpecificData?.validationModelId || modelId || "claude-haiku-4-5-20251001";
 
   try {
+    const { getExecutor } = await import("@omniroute/open-sse/executors/index.ts");
     const { response } = await getExecutor("claude").execute({
       model: testModelId,
       body: {
@@ -738,24 +786,28 @@ async function validateGeminiLikeProvider({
       return { valid: false, error: "Missing base URL" };
     }
 
+    const normalizedAuthType = String(authType || "query").toLowerCase();
+    const normalizedBaseUrl = String(baseUrl).replace(/\/$/, "");
     const requestUrl =
       typeof providerSpecificData?.modelsUrl === "string" &&
       providerSpecificData.modelsUrl.trim() !== ""
         ? providerSpecificData.modelsUrl.trim()
-        : `${baseUrl}/models`;
-
-    const urlWithKey =
-      authType === "query" ? `${requestUrl}?key=${encodeURIComponent(apiKey)}` : requestUrl;
-
-    // Use the correct auth header based on provider config:
-    // - gemini / gemini-cli (API key): x-goog-api-key
-    // - gemini-cli (OAuth): Bearer token
+        : normalizedBaseUrl.endsWith("/models")
+          ? normalizedBaseUrl
+          : `${normalizedBaseUrl}/models`;
     const headers: Record<string, string> = {};
+    let urlWithKey = requestUrl;
 
-    if (authType === "header" || authType === "apikey") {
+    if (normalizedAuthType === "query") {
+      urlWithKey = `${requestUrl}?key=${encodeURIComponent(apiKey)}`;
+    } else if (normalizedAuthType === "header" || normalizedAuthType === "apikey") {
       headers["x-goog-api-key"] = apiKey;
-    } else if (authType === "oauth" || apiKey.startsWith("ya29.")) {
-      headers["Authorization"] = `Bearer ${apiKey}`;
+    } else if (
+      normalizedAuthType === "oauth" ||
+      normalizedAuthType === "bearer" ||
+      apiKey.startsWith("ya29.")
+    ) {
+      headers.Authorization = `Bearer ${apiKey}`;
     }
 
     applyCustomUserAgent(headers, providerSpecificData);
@@ -3271,20 +3323,7 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
     watsonx: validateWatsonxProvider,
     oci: validateOciProvider,
     sap: validateSapProvider,
-    bedrock: ({ apiKey, providerSpecificData }: any) => {
-      const baseUrl = normalizeBedrockBaseUrl(
-        providerSpecificData?.baseUrl || BEDROCK_DEFAULT_BASE_URL
-      );
-      return validateOpenAILikeProvider({
-        provider: "bedrock",
-        apiKey,
-        providerSpecificData,
-        baseUrl,
-        modelId: getBedrockValidationModelId(baseUrl),
-        modelsUrl: buildBedrockModelsUrl(baseUrl),
-        isLocal,
-      });
-    },
+    bedrock: validateBedrockProvider,
     modal: ({ apiKey, providerSpecificData }: any) =>
       validateOpenAILikeProvider({
         provider: "modal",

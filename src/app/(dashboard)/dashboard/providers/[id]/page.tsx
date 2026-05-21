@@ -69,6 +69,10 @@ import {
 import { isClaudeExtraUsageBlockEnabled } from "@/lib/providers/claudeExtraUsage";
 import { parseExtraApiKeys } from "@/shared/utils/parseApiKeys";
 import { resolveDashboardProviderInfo } from "../providerPageUtils";
+import {
+  getWebSessionCredentialRequirement,
+  type WebSessionCredentialRequirement,
+} from "./webSessionCredentials";
 
 type CompatByProtocolMap = Partial<
   Record<
@@ -140,10 +144,12 @@ function isModelHidden(
   return false;
 }
 
+type ProviderMessageTranslator = ((key: string, values?: Record<string, unknown>) => string) & {
+  has?: (key: string) => boolean;
+};
+
 function providerText(
-  t: ((key: string, values?: Record<string, unknown>) => string) & {
-    has?: (key: string) => boolean;
-  },
+  t: ProviderMessageTranslator,
   key: string,
   fallback: string,
   values?: Record<string, unknown>
@@ -158,6 +164,194 @@ function providerText(
     );
   }
   return fallback;
+}
+
+function getWebSessionCredentialLabel(
+  t: ProviderMessageTranslator,
+  requirement: WebSessionCredentialRequirement,
+  optional: boolean
+): string {
+  if (requirement.kind === "none") {
+    return providerText(t, "webNoAuthCredentialLabel", "No credential required");
+  }
+  const baseLabel =
+    requirement.kind === "token"
+      ? providerText(t, "webTokenCredentialLabel", "Web session token")
+      : t("sessionCookieLabel");
+  return optional ? `${baseLabel} (${t("optional").toLowerCase()})` : baseLabel;
+}
+
+function getWebSessionCredentialHint(
+  t: ProviderMessageTranslator,
+  requirement: WebSessionCredentialRequirement,
+  providerName: string,
+  editing: boolean
+): string | undefined {
+  if (requirement.kind === "none") return undefined;
+
+  const values = { provider: providerName, credential: requirement.credentialName };
+  if (editing) {
+    return requirement.kind === "token"
+      ? providerText(
+          t,
+          "webTokenEditHint",
+          "Leave blank to keep the current web session token. Credential: {credential}.",
+          values
+        )
+      : providerText(
+          t,
+          "webCookieEditHint",
+          "Leave blank to keep the current session cookie. Required cookie: {credential}.",
+          values
+        );
+  }
+
+  return requirement.kind === "token"
+    ? providerText(
+        t,
+        "webTokenCredentialHint",
+        "Credential: {credential}. Paste the token value from your own signed-in {provider} web session, or a DevTools HAR export if the provider supports it.",
+        values
+      )
+    : providerText(
+        t,
+        "webCookieCredentialHint",
+        "Required cookie: {credential}. Paste the Cookie header value from your own signed-in {provider} web session. Do not include the Cookie: prefix.",
+        values
+      );
+}
+
+function getWebSessionCredentialCheckLabel(
+  t: ProviderMessageTranslator,
+  requirement: WebSessionCredentialRequirement
+): string {
+  if (requirement.kind === "token") return providerText(t, "checkWebToken", "Check token");
+  return providerText(t, "checkCookie", "Check cookie");
+}
+
+function getAddCredentialModalTitle(
+  t: ProviderMessageTranslator,
+  providerName: string,
+  requirement: WebSessionCredentialRequirement | null
+): string {
+  if (!requirement) return t("addProviderApiKeyTitle", { provider: providerName });
+  if (requirement.kind === "none") {
+    return providerText(t, "addProviderConnectionTitle", "Add {provider} connection", {
+      provider: providerName,
+    });
+  }
+  if (requirement.kind === "token") {
+    return providerText(t, "addProviderWebTokenTitle", "Add {provider} web token", {
+      provider: providerName,
+    });
+  }
+  return providerText(t, "addProviderSessionCookieTitle", "Add {provider} session cookie", {
+    provider: providerName,
+  });
+}
+
+function WebSessionCredentialGuide({
+  requirement,
+  providerName,
+  t,
+}: {
+  requirement: WebSessionCredentialRequirement;
+  providerName: string;
+  t: ProviderMessageTranslator;
+}) {
+  if (requirement.kind === "none") {
+    return (
+      <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-3 text-sm text-text-muted">
+        <div className="flex items-start gap-2">
+          <span className="material-symbols-outlined mt-0.5 text-[18px] text-emerald-500">
+            check_circle
+          </span>
+          <div>
+            <p className="font-medium text-text-main">
+              {providerText(t, "webNoAuthGuideTitle", "No credential required")}
+            </p>
+            <p className="mt-1">
+              {providerText(
+                t,
+                "webNoAuthGuideBody",
+                "{provider} does not need an API key or cookie. Save the connection to use its free web endpoint.",
+                { provider: providerName }
+              )}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const requiredCredentialKey =
+    requirement.kind === "token" ? "webTokenRequiredCredential" : "webCookieRequiredCredential";
+  const requiredCredentialFallback =
+    requirement.kind === "token" ? "Required token: {credential}" : "Required cookie: {credential}";
+
+  return (
+    <div className="rounded-lg border border-purple-500/25 bg-purple-500/10 px-3 py-3 text-sm text-text-muted">
+      <div className="flex items-start gap-2">
+        <span className="material-symbols-outlined mt-0.5 text-[18px] text-purple-500">cookie</span>
+        <div className="space-y-2">
+          <div>
+            <p className="font-medium text-text-main">
+              {providerText(t, "webSessionGuideTitle", "How to get the session credential")}
+            </p>
+            <p className="mt-1">
+              {providerText(
+                t,
+                "webSessionGuideIntro",
+                "{provider} uses a browser web session instead of an API key.",
+                { provider: providerName }
+              )}
+            </p>
+          </div>
+          <p className="font-medium text-text-main">
+            {providerText(t, requiredCredentialKey, requiredCredentialFallback, {
+              credential: requirement.credentialName,
+            })}
+          </p>
+          <ol className="list-decimal space-y-1 pl-5">
+            <li>
+              {providerText(t, "webSessionGuideStep1", "Sign in to {provider} in your browser.", {
+                provider: providerName,
+              })}
+            </li>
+            <li>
+              {providerText(
+                t,
+                "webSessionGuideStep2",
+                "Open the browser developer tools and inspect a request made by the web app."
+              )}
+            </li>
+            <li>
+              {providerText(
+                t,
+                "webSessionGuideStep3",
+                "Copy the required credential from the provider's own domain. For cookies, copy only the Cookie header value and omit Cookie:.",
+                { credential: requirement.credentialName }
+              )}
+            </li>
+            <li>
+              {providerText(
+                t,
+                "webSessionGuideStep4",
+                "Paste it here and check the connection. If it stops working, sign in again and replace it with a fresh value."
+              )}
+            </li>
+          </ol>
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            {providerText(
+              t,
+              "webSessionSecurityHint",
+              "Treat this like a password: it may access your signed-in web account until it expires or is revoked."
+            )}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function effectiveNormalizeForProtocol(
@@ -391,6 +585,9 @@ interface PassthroughModelsSectionProps {
   modelAliases: Record<string, string>;
   availableModels?: CompatModelRow[];
   customModels?: CompatModelRow[];
+  description: string;
+  inputLabel: string;
+  inputPlaceholder: string;
   copied?: string;
   onCopy: (text: string, key: string) => void;
   onSetAlias: (modelId: string, alias: string) => Promise<void>;
@@ -3135,6 +3332,21 @@ export default function ProviderDetailPage() {
     }
 
     if (providerInfo.passthroughModels) {
+      const passthroughDescription =
+        providerId === "openrouter"
+          ? t("openRouterAnyModelHint")
+          : providerId === "bedrock"
+            ? t("bedrockModelsDescription")
+            : t("passthroughModelsDescription", { provider: providerInfo?.name || providerId });
+      const passthroughInputLabel =
+        providerId === "openrouter" ? t("modelIdFromOpenRouter") : t("modelId");
+      const passthroughInputPlaceholder =
+        providerId === "openrouter"
+          ? t("openRouterModelPlaceholder")
+          : providerId === "bedrock"
+            ? t("bedrockModelPlaceholder")
+            : t("openaiCompatibleModelPlaceholder");
+
       return (
         <div>
           <div className="flex items-center gap-2 mb-4">
@@ -3158,6 +3370,9 @@ export default function ProviderDetailPage() {
             modelAliases={modelAliases}
             availableModels={syncedAvailableModels}
             customModels={modelMeta.customModels}
+            description={passthroughDescription}
+            inputLabel={passthroughInputLabel}
+            inputPlaceholder={passthroughInputPlaceholder}
             copied={copied}
             onCopy={copy}
             onSetAlias={handleSetAlias}
@@ -4703,6 +4918,9 @@ function PassthroughModelsSection({
   modelAliases,
   availableModels = [],
   customModels = [],
+  description,
+  inputLabel,
+  inputPlaceholder,
   copied,
   onCopy,
   onSetAlias,
@@ -4848,13 +5066,13 @@ function PassthroughModelsSection({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-text-muted">{t("openRouterAnyModelHint")}</p>
+      <p className="text-sm text-text-muted">{description}</p>
 
       {/* Add new model */}
       <div className="flex items-end gap-2">
         <div className="flex-1">
           <label htmlFor="new-model-input" className="text-xs text-text-muted mb-1 block">
-            {t("modelIdFromOpenRouter")}
+            {inputLabel}
           </label>
           <input
             id="new-model-input"
@@ -4862,7 +5080,7 @@ function PassthroughModelsSection({
             value={newModel}
             onChange={(e) => setNewModel(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder={t("openRouterModelPlaceholder")}
+            placeholder={inputPlaceholder}
             className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
           />
         </div>
@@ -6845,20 +7063,21 @@ function AddApiKeyModal({
   const usesBaseUrl = isBaseUrlConfigurableProvider(provider);
   const defaultBaseUrl = getProviderBaseUrlDefault(provider);
   const isVertex = provider === "vertex" || provider === "vertex-partner";
-  const defaultRegion = "us-central1";
+  const isBedrock = provider === "bedrock";
+  const showsRegion = isVertex || isBedrock;
+  const defaultRegion = isBedrock ? "eu-west-2" : "us-central1";
   const isGlm = isGlmProvider(provider);
   const isQoder = provider === "qoder";
   const isCloudflare = provider === "cloudflare-ai";
   const localProviderMetadata = getLocalProviderMetadata(provider);
   const isLocalSelfHostedProvider = !!localProviderMetadata;
   const isGooglePse = provider === "google-pse-search";
-  const isGrokWeb = provider === "grok-web";
-  const isPerplexityWeb = provider === "perplexity-web";
-  const isBlackboxWeb = provider === "blackbox-web";
-  const isMuseSparkWeb = provider === "muse-spark-web";
-  const isDeepSeekWeb = provider === "deepseek-web";
-  const isWebSessionProvider = isGrokWeb || isPerplexityWeb || isBlackboxWeb || isMuseSparkWeb;
-  const apiKeyOptional = providerAllowsOptionalApiKey(provider);
+  const webSessionCredential = getWebSessionCredentialRequirement(provider);
+  const isNoAuthWebSessionCredential = webSessionCredential?.kind === "none";
+  const isWebSessionCredential = !!webSessionCredential && webSessionCredential.kind !== "none";
+  const providerDisplayName = providerName || provider || "";
+  const apiKeyOptional =
+    providerAllowsOptionalApiKey(provider) || Boolean(isNoAuthWebSessionCredential);
   const commandCodeAuthPhaseLabel = commandCodeAuthState
     ? {
         idle: "Ready",
@@ -6878,7 +7097,7 @@ function AddApiKeyModal({
     priority: 1,
     baseUrl: defaultBaseUrl,
     cx: "",
-    region: isVertex ? defaultRegion : "",
+    region: showsRegion ? defaultRegion : "",
     apiRegion: "international",
     validationModelId: "",
     routingTags: "",
@@ -6909,49 +7128,38 @@ function AddApiKeyModal({
   const [bulkWarnings, setBulkWarnings] = useState<string[]>([]);
   const apiCredentialLabel = isQoder
     ? t("personalAccessTokenLabel")
-    : isDeepSeekWeb
-      ? "User Token"
-      : isWebSessionProvider
-        ? t("sessionCookieLabel")
-        : apiKeyOptional
-          ? `${t("apiKeyLabel")} (${t("optional").toLowerCase()})`
-          : t("apiKeyLabel");
+    : webSessionCredential
+      ? getWebSessionCredentialLabel(t, webSessionCredential, apiKeyOptional)
+      : apiKeyOptional
+        ? `${t("apiKeyLabel")} (${t("optional").toLowerCase()})`
+        : t("apiKeyLabel");
   const apiCredentialPlaceholder = isVertex
     ? t("vertexServiceAccountPlaceholder")
-    : isDeepSeekWeb
-      ? "Paste userToken value from localStorage"
-      : isGrokWeb
-        ? t("grokWebCookiePlaceholder")
-        : isPerplexityWeb
-          ? t("perplexityWebCookiePlaceholder")
-          : isBlackboxWeb
-            ? t("blackboxWebCookiePlaceholder")
-            : isMuseSparkWeb
-              ? t("museSparkWebCookiePlaceholder")
-              : isQoder
-                ? t("qoderPatPlaceholder")
-                : apiKeyOptional
-                  ? t("optional")
-                  : undefined;
+    : isWebSessionCredential
+      ? webSessionCredential.placeholder
+      : isQoder
+        ? t("qoderPatPlaceholder")
+        : apiKeyOptional
+          ? t("optional")
+          : undefined;
   const apiCredentialHint = isQoder
     ? t("qoderPatHint")
-    : isDeepSeekWeb
-      ? "Found in browser DevTools → Application → Local Storage → chat.deepseek.com → userToken"
-      : isGrokWeb
-        ? t("grokWebCookieHint")
-        : isPerplexityWeb
-          ? t("perplexityWebCookieHint")
-          : isBlackboxWeb
-            ? t("blackboxWebCookieHint")
-            : isMuseSparkWeb
-              ? t("museSparkWebCookieHint")
-              : isLocalSelfHostedProvider
-                ? t("localProviderApiKeyOptionalHint", {
-                    provider: localProviderMetadata?.name || providerName || provider || "",
-                  })
-                : apiKeyOptional
-                  ? t("apiKeyOptionalHint")
-                  : undefined;
+    : isWebSessionCredential
+      ? getWebSessionCredentialHint(t, webSessionCredential, providerDisplayName, false)
+      : isLocalSelfHostedProvider
+        ? t("localProviderApiKeyOptionalHint", {
+            provider: localProviderMetadata?.name || providerName || provider || "",
+          })
+        : apiKeyOptional
+          ? t("apiKeyOptionalHint")
+          : undefined;
+  const credentialValidationFailedMessage = isWebSessionCredential
+    ? providerText(
+        t,
+        "webSessionCredentialValidationFailed",
+        "Session credential validation failed. Sign in again, copy a fresh credential, and try again."
+      )
+    : t("apiKeyValidationFailed");
 
   const handleValidate = async () => {
     setValidating(true);
@@ -6969,6 +7177,7 @@ function AddApiKeyModal({
           validationModelId: formData.validationModelId || undefined,
           customUserAgent: formData.customUserAgent.trim() || undefined,
           baseUrl: formData.baseUrl.trim() || undefined,
+          region: showsRegion ? formData.region.trim() || defaultRegion : undefined,
           cx: formData.cx.trim() || undefined,
         }),
       });
@@ -7016,33 +7225,36 @@ function AddApiKeyModal({
         validatedBaseUrl = checked.value;
       }
 
-      let isValid = false;
+      let isValid = Boolean(isNoAuthWebSessionCredential && !credentialInput);
       let validationError: string | null = null;
-      try {
-        setValidating(true);
-        setValidationResult(null);
-        const res = await fetch("/api/providers/validate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            provider,
-            apiKey: credentialInput,
-            validationModelId: formData.validationModelId || undefined,
-            customUserAgent: formData.customUserAgent.trim() || undefined,
-            baseUrl: formData.baseUrl.trim() || undefined,
-            cx: formData.cx.trim() || undefined,
-          }),
-        });
-        const data = await res.json();
-        isValid = !!data.valid;
-        if (!isValid && data.error) {
-          validationError = data.error;
+      if (!isValid) {
+        try {
+          setValidating(true);
+          setValidationResult(null);
+          const res = await fetch("/api/providers/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              provider,
+              apiKey: credentialInput,
+              validationModelId: formData.validationModelId || undefined,
+              customUserAgent: formData.customUserAgent.trim() || undefined,
+              baseUrl: formData.baseUrl.trim() || undefined,
+              region: showsRegion ? formData.region.trim() || defaultRegion : undefined,
+              cx: formData.cx.trim() || undefined,
+            }),
+          });
+          const data = await res.json();
+          isValid = !!data.valid;
+          if (!isValid && data.error) {
+            validationError = data.error;
+          }
+          setValidationResult(isValid ? "success" : "failed");
+        } catch {
+          setValidationResult("failed");
+        } finally {
+          setValidating(false);
         }
-        setValidationResult(isValid ? "success" : "failed");
-      } catch {
-        setValidationResult("failed");
-      } finally {
-        setValidating(false);
       }
 
       if (!isValid) {
@@ -7050,7 +7262,7 @@ function AddApiKeyModal({
           // Bypass validation block for local/optional providers when no key is provided
           console.debug("Validation failed but apiKey is optional; proceeding to save.");
         } else {
-          setSaveError(validationError || t("apiKeyValidationFailed"));
+          setSaveError(validationError || credentialValidationFailedMessage);
           return;
         }
       }
@@ -7076,8 +7288,8 @@ function AddApiKeyModal({
       }
       if (usesBaseUrl) {
         providerSpecificData.baseUrl = validatedBaseUrl;
-      } else if (isVertex) {
-        providerSpecificData.region = formData.region;
+      } else if (showsRegion) {
+        providerSpecificData.region = formData.region.trim() || defaultRegion;
       } else if (isGlm) {
         providerSpecificData.apiRegion = formData.apiRegion;
       } else if (isCloudflare && formData.accountId.trim()) {
@@ -7149,7 +7361,7 @@ function AddApiKeyModal({
   return (
     <Modal
       isOpen={isOpen}
-      title={t("addProviderApiKeyTitle", { provider: providerName || provider })}
+      title={getAddCredentialModalTitle(t, providerDisplayName, webSessionCredential)}
       onClose={onClose}
     >
       <div className="flex flex-col gap-4">
@@ -7373,31 +7585,47 @@ function AddApiKeyModal({
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder={isQoder ? t("personalAccessTokenLabel") : t("productionKey")}
             />
-            <div className="flex gap-2">
-              <Input
-                label={apiCredentialLabel}
-                type="password"
-                value={formData.apiKey}
-                onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                className="flex-1"
-                placeholder={apiCredentialPlaceholder}
-                hint={apiCredentialHint}
+            {webSessionCredential && (
+              <WebSessionCredentialGuide
+                requirement={webSessionCredential}
+                providerName={providerDisplayName}
+                t={t}
               />
-              <div className="pt-6">
-                <Button
-                  onClick={handleValidate}
-                  disabled={
-                    (!isCompatible && !apiKeyOptional && !formData.apiKey) ||
-                    (isGooglePse && !formData.cx.trim()) ||
-                    validating ||
-                    saving
-                  }
-                  variant="secondary"
-                >
-                  {validating ? t("checking") : t("check")}
-                </Button>
+            )}
+            {!isNoAuthWebSessionCredential && (
+              <div className="flex gap-2">
+                <Input
+                  label={apiCredentialLabel}
+                  type="password"
+                  value={formData.apiKey}
+                  onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
+                  className="flex-1"
+                  placeholder={apiCredentialPlaceholder}
+                  hint={apiCredentialHint}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                />
+                <div className="pt-6">
+                  <Button
+                    onClick={handleValidate}
+                    disabled={
+                      (!isCompatible && !apiKeyOptional && !formData.apiKey) ||
+                      (isGooglePse && !formData.cx.trim()) ||
+                      validating ||
+                      saving
+                    }
+                    variant="secondary"
+                  >
+                    {validating
+                      ? t("checking")
+                      : webSessionCredential
+                        ? getWebSessionCredentialCheckLabel(t, webSessionCredential)
+                        : t("check")}
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
             {isGooglePse && (
               <Input
                 label={t("searchEngineIdLabel")}
@@ -7524,7 +7752,7 @@ function AddApiKeyModal({
                 hint={getProviderBaseUrlHint(provider, t)}
               />
             )}
-            {isVertex && (
+            {showsRegion && (
               <Input
                 label={t("regionLabel")}
                 value={formData.region}
@@ -9116,6 +9344,8 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
   const usesBaseUrl = isBaseUrlConfigurableProvider(connection?.provider);
   const defaultBaseUrl = getProviderBaseUrlDefault(connection?.provider);
   const isVertex = connection?.provider === "vertex" || connection?.provider === "vertex-partner";
+  const isBedrock = connection?.provider === "bedrock";
+  const showsRegion = isVertex || isBedrock;
   const isGlm = isGlmProvider(connection?.provider);
   const isCloudflare = connection?.provider === "cloudflare-ai";
   const isCodex = connection?.provider === "codex";
@@ -9126,16 +9356,36 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
   const localProviderMetadata = getLocalProviderMetadata(connection?.provider);
   const isLocalSelfHostedProvider = !!localProviderMetadata;
   const isGooglePse = connection?.provider === "google-pse-search";
-  const apiKeyOptional = providerAllowsOptionalApiKey(connection?.provider);
+  const webSessionCredential = getWebSessionCredentialRequirement(connection?.provider);
+  const isNoAuthWebSessionCredential = webSessionCredential?.kind === "none";
+  const isWebSessionCredential = !!webSessionCredential && webSessionCredential.kind !== "none";
+  const providerDisplayName =
+    (connection?.provider ? resolveDashboardProviderInfo(connection.provider)?.name : null) ||
+    connection?.provider ||
+    "";
+  const apiKeyOptional =
+    providerAllowsOptionalApiKey(connection?.provider) || Boolean(isNoAuthWebSessionCredential);
   const isCcCompatible = isClaudeCodeCompatibleProvider(connection?.provider);
-  const defaultRegion = "us-central1";
-  const apiCredentialHint = isLocalSelfHostedProvider
-    ? t("localProviderApiKeyOptionalHint", {
-        provider: localProviderMetadata?.name || connection?.provider || "",
-      })
+  const defaultRegion = isBedrock ? "eu-west-2" : "us-central1";
+  const apiCredentialLabel = webSessionCredential
+    ? getWebSessionCredentialLabel(t, webSessionCredential, apiKeyOptional)
     : apiKeyOptional
-      ? t("apiKeyOptionalHint")
-      : t("leaveBlankKeepCurrentApiKey");
+      ? t("apiKeyOptionalLabel")
+      : t("apiKeyLabel");
+  const apiCredentialPlaceholder = isWebSessionCredential
+    ? webSessionCredential.placeholder
+    : isVertex
+      ? t("vertexServiceAccountPlaceholder")
+      : t("enterNewApiKey");
+  const apiCredentialHint = isWebSessionCredential
+    ? getWebSessionCredentialHint(t, webSessionCredential, providerDisplayName, true)
+    : isLocalSelfHostedProvider
+      ? t("localProviderApiKeyOptionalHint", {
+          provider: localProviderMetadata?.name || connection?.provider || "",
+        })
+      : apiKeyOptional
+        ? t("apiKeyOptionalHint")
+        : t("leaveBlankKeepCurrentApiKey");
 
   useEffect(() => {
     if (isOpen && connection) {
@@ -9167,7 +9417,7 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
         healthCheckInterval: connection.healthCheckInterval ?? 60,
         baseUrl: existingBaseUrl || defaultBaseUrl,
         cx: existingCx,
-        region: existingRegion || (isVertex ? defaultRegion : ""),
+        region: existingRegion || (showsRegion ? defaultRegion : ""),
         apiRegion: (connection.providerSpecificData?.apiRegion as string) || "international",
         validationModelId: (connection.providerSpecificData?.validationModelId as string) || "",
         tag: (connection.providerSpecificData?.tag as string) || "",
@@ -9218,7 +9468,7 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
       setValidationResult(null);
       setSaveError(null);
     }
-  }, [isOpen, connection, defaultBaseUrl, isVertex]);
+  }, [isOpen, connection, defaultBaseUrl, showsRegion, defaultRegion]);
 
   const handleTest = async () => {
     if (!connection?.provider) return;
@@ -9250,7 +9500,13 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
   };
 
   const handleValidate = async () => {
-    if (!connection?.provider || (!isCompatible && !apiKeyOptional && !formData.apiKey)) return;
+    if (
+      !connection?.provider ||
+      isNoAuthWebSessionCredential ||
+      (!isCompatible && !apiKeyOptional && !formData.apiKey)
+    ) {
+      return;
+    }
     setValidating(true);
     setValidationResult(null);
     try {
@@ -9263,6 +9519,7 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
           validationModelId: formData.validationModelId || undefined,
           customUserAgent: formData.customUserAgent.trim() || undefined,
           baseUrl: formData.baseUrl.trim() || undefined,
+          region: showsRegion ? formData.region.trim() || defaultRegion : undefined,
           cx: formData.cx.trim() || undefined,
         }),
       });
@@ -9344,6 +9601,7 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
                 validationModelId: formData.validationModelId || undefined,
                 customUserAgent: formData.customUserAgent.trim() || undefined,
                 baseUrl: formData.baseUrl.trim() || undefined,
+                region: showsRegion ? formData.region.trim() || defaultRegion : undefined,
                 cx: formData.cx.trim() || undefined,
               }),
             });
@@ -9393,8 +9651,8 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
         }
         if (usesBaseUrl) {
           updates.providerSpecificData.baseUrl = validatedBaseUrl;
-        } else if (isVertex) {
-          updates.providerSpecificData.region = formData.region;
+        } else if (showsRegion) {
+          updates.providerSpecificData.region = formData.region.trim() || defaultRegion;
         } else if (isGlm) {
           updates.providerSpecificData.apiRegion = formData.apiRegion;
         } else if (isCloudflare && formData.accountId.trim()) {
@@ -9641,31 +9899,47 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
         )}
         {!isOAuth && (
           <>
-            <div className="flex gap-2">
-              <Input
-                label={apiKeyOptional ? t("apiKeyOptionalLabel") : t("apiKeyLabel")}
-                type="password"
-                value={formData.apiKey}
-                onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                placeholder={isVertex ? t("vertexServiceAccountPlaceholder") : t("enterNewApiKey")}
-                hint={apiCredentialHint}
-                className="flex-1"
+            {webSessionCredential && (
+              <WebSessionCredentialGuide
+                requirement={webSessionCredential}
+                providerName={providerDisplayName}
+                t={t}
               />
-              <div className="pt-6">
-                <Button
-                  onClick={handleValidate}
-                  disabled={
-                    (!isCompatible && !apiKeyOptional && !formData.apiKey) ||
-                    (isGooglePse && !formData.cx.trim()) ||
-                    validating ||
-                    saving
-                  }
-                  variant="secondary"
-                >
-                  {validating ? t("checking") : t("check")}
-                </Button>
+            )}
+            {!isNoAuthWebSessionCredential && (
+              <div className="flex gap-2">
+                <Input
+                  label={apiCredentialLabel}
+                  type="password"
+                  value={formData.apiKey}
+                  onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
+                  placeholder={apiCredentialPlaceholder}
+                  hint={apiCredentialHint}
+                  className="flex-1"
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                />
+                <div className="pt-6">
+                  <Button
+                    onClick={handleValidate}
+                    disabled={
+                      (!isCompatible && !apiKeyOptional && !formData.apiKey) ||
+                      (isGooglePse && !formData.cx.trim()) ||
+                      validating ||
+                      saving
+                    }
+                    variant="secondary"
+                  >
+                    {validating
+                      ? t("checking")
+                      : webSessionCredential
+                        ? getWebSessionCredentialCheckLabel(t, webSessionCredential)
+                        : t("check")}
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
             {isGooglePse && (
               <Input
                 label={t("searchEngineIdLabel")}
@@ -9746,7 +10020,7 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
           />
         )}
 
-        {isVertex && (
+        {showsRegion && (
           <Input
             label={t("regionLabel")}
             value={formData.region}

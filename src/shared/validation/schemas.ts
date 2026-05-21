@@ -59,6 +59,19 @@ function validateProviderSpecificData(
     });
   }
 
+  const region = data.region;
+  if (
+    region !== undefined &&
+    region !== null &&
+    (typeof region !== "string" || region.length > 64)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "providerSpecificData.region must be a string up to 64 chars",
+      path: ["region"],
+    });
+  }
+
   const openaiStoreEnabled = data.openaiStoreEnabled;
   if (openaiStoreEnabled !== undefined && typeof openaiStoreEnabled !== "boolean") {
     ctx.addIssue({
@@ -485,6 +498,10 @@ const scoringWeightsSchema = z
     taskFit: z.number().min(0).max(1),
     stability: z.number().min(0).max(1),
     tierPriority: z.number().min(0).max(1).optional().default(0.05),
+    tierAffinity: z.number().min(0).max(1).optional().default(0.05),
+    specificityMatch: z.number().min(0).max(1).optional().default(0.05),
+    contextAffinity: z.number().min(0).max(1).optional().default(0.08),
+    resetWindowAffinity: z.number().min(0).max(1).optional().default(0),
   })
   .optional();
 
@@ -548,6 +565,13 @@ const comboRuntimeConfigSchema = z
     resetAwareWeeklyWeight: z.coerce.number().min(0).max(100).optional(),
     resetAwareTieBandPercent: z.coerce.number().min(0).max(100).optional(),
     resetAwareExhaustionGuardPercent: z.coerce.number().min(0).max(100).optional(),
+    resetAwareQuotaCacheTtlMs: z.coerce.number().int().min(0).max(300_000).optional(),
+    resetAwareQuotaCacheMaxStaleMs: z.coerce.number().int().min(0).max(3_600_000).optional(),
+    resetWindowWindows: z.array(z.enum(["weekly", "session", "monthly"])).optional(),
+    resetWindowIncludeSession: z.boolean().optional(),
+    resetWindowTieBandMs: z.coerce.number().int().min(0).max(86_400_000).optional(),
+    resetWindowQuotaCacheTtlMs: z.coerce.number().int().min(0).max(300_000).optional(),
+    resetWindowQuotaCacheMaxStaleMs: z.coerce.number().int().min(0).max(3_600_000).optional(),
   })
   .strict();
 
@@ -598,7 +622,14 @@ export const updateSettingsSchema = z.object({
   bruteForceProtection: z.boolean().optional(),
   hiddenSidebarItems: z.array(z.enum(HIDEABLE_SIDEBAR_ITEM_IDS)).optional(),
   comboConfigMode: z.enum(COMBO_CONFIG_MODES).optional(),
-  codexServiceTier: z.object({ enabled: z.boolean() }).optional(),
+  codexServiceTier: z
+    .object({
+      enabled: z.boolean().optional(),
+      tier: z.enum(["default", "priority", "flex"]).optional(),
+      supportedModels: z.array(z.string().max(200)).max(200).optional(),
+    })
+    .optional(),
+  codexSessionAffinityTtlMs: z.number().int().min(0).max(86_400_000).optional(),
   // Routing settings (#134)
   fallbackStrategy: settingsFallbackStrategySchema.optional(),
   wildcardAliases: z.array(z.object({ pattern: z.string(), target: z.string() })).optional(),
@@ -1629,10 +1660,12 @@ export const updateKeyPermissionsSchema = z
   .object({
     name: z.string().trim().min(1).max(200).optional(),
     allowedModels: z.array(z.string().trim().min(1)).max(1000).optional(),
+    allowedCombos: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
     allowedConnections: z.array(z.string().uuid()).max(100).optional(),
     noLog: z.boolean().optional(),
     autoResolve: z.boolean().optional(),
     isActive: z.boolean().optional(),
+    throttleDelayMs: z.number().int().min(0).max(300000).optional(),
     isBanned: z.boolean().optional(),
     expiresAt: z.string().datetime().nullable().optional(),
     maxSessions: z.number().int().min(0).max(10000).optional(),
@@ -1653,10 +1686,12 @@ export const updateKeyPermissionsSchema = z
     if (
       value.name === undefined &&
       value.allowedModels === undefined &&
+      value.allowedCombos === undefined &&
       value.allowedConnections === undefined &&
       value.noLog === undefined &&
       value.autoResolve === undefined &&
       value.isActive === undefined &&
+      value.throttleDelayMs === undefined &&
       value.isBanned === undefined &&
       value.expiresAt === undefined &&
       value.maxSessions === undefined &&
@@ -1824,6 +1859,7 @@ export const validateProviderApiKeySchema = z
     validationModelId: z.string().trim().optional(),
     customUserAgent: z.string().trim().max(500).optional(),
     baseUrl: z.string().trim().url().optional(),
+    region: z.string().trim().max(64).optional(),
     cx: z.string().trim().max(500).optional(),
   })
   .superRefine((data, ctx) => {

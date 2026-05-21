@@ -338,8 +338,8 @@ function toPersistedEvalRun(row: unknown): PersistedEvalRun | null {
   const camel = rowToCamel(row) as JsonRecord | null;
   if (!camel) return null;
 
-  const summaryRecord = parseJsonRecord(camel.summaryJson);
-  const outputsRecord = parseJsonRecord(camel.outputsJson);
+  const summaryRecord = parseJsonRecord(camel.summary ?? camel.summaryJson);
+  const outputsRecord = parseJsonRecord(camel.outputs ?? camel.outputsJson);
   const outputs = Object.fromEntries(
     Object.entries(outputsRecord)
       .filter((entry): entry is [string, string] => typeof entry[0] === "string")
@@ -366,7 +366,7 @@ function toPersistedEvalRun(row: unknown): PersistedEvalRun | null {
       failed: parseNumber(summaryRecord.failed ?? camel.failed),
       passRate: parseNumber(summaryRecord.passRate ?? camel.passRate),
     },
-    results: parseJsonArray(camel.resultsJson),
+    results: parseJsonArray(camel.results ?? camel.resultsJson),
     outputs,
     createdAt: typeof camel.createdAt === "string" ? camel.createdAt : "",
   };
@@ -376,7 +376,7 @@ function toEvalCaseRecord(row: unknown): EvalCaseRecord | null {
   const camel = rowToCamel(row) as JsonRecord | null;
   if (!camel) return null;
 
-  const input = sanitizeEvalCaseInput(parseJsonRecord(camel.inputJson));
+  const input = sanitizeEvalCaseInput(parseJsonRecord(camel.input ?? camel.inputJson));
   const expected = sanitizeEvalExpected({
     strategy: camel.expectedStrategy,
     value: camel.expectedValue,
@@ -391,7 +391,7 @@ function toEvalCaseRecord(row: unknown): EvalCaseRecord | null {
       : {}),
     input,
     expected,
-    tags: parseStringArray(camel.tagsJson),
+    tags: parseStringArray(camel.tags ?? camel.tagsJson),
     sortOrder: parseNumber(camel.sortOrder),
     createdAt: typeof camel.createdAt === "string" ? camel.createdAt : "",
     updatedAt: typeof camel.updatedAt === "string" ? camel.updatedAt : "",

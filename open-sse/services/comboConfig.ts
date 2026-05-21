@@ -26,6 +26,8 @@ const DEFAULT_COMBO_CONFIG = {
   failoverBeforeRetry: false,
   maxSetRetries: 0,
   setRetryDelayMs: 2000,
+  resetAwareQuotaCacheTtlMs: 0,
+  resetAwareQuotaCacheMaxStaleMs: 0,
 };
 
 const LEGACY_COMBO_RESILIENCE_KEYS = new Set([

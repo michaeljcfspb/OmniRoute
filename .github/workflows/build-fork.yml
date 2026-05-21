@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   build:
+    if: github.repository == 'gi99lin/OmniRoute'
     name: Build and Push to ghcr.io
     runs-on: ubuntu-latest
     steps:
