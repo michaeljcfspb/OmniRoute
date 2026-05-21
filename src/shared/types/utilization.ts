@@ -77,6 +77,13 @@ export interface ComboHealthResponse {
   combos: ComboHealthMetrics[];
 }
 
+export interface ComboRecord {
+  id?: string;
+  name?: string;
+  strategy?: string;
+  models?: unknown[];
+}
+
 export type UtilizationTimeRange = "1h" | "24h" | "7d" | "30d";
 
 export type ComboForecastHorizon = "24h" | "7d" | "30d";
@@ -315,6 +322,14 @@ export interface ComboScoringInspectorResponse {
   horizon: ComboForecastHorizon;
   method: "read_only_recompute";
   combos: ComboScoringInspectorCombo[];
+}
+
+export interface ComboHealthDashboardResponse {
+  health: ComboHealthResponse;
+  forecast: ComboForecastResponse | null;
+  autopilot: ComboAutopilotReport | null;
+  scoring: ComboScoringInspectorResponse | null;
+  errors: Partial<Record<"forecast" | "autopilot" | "scoring", string>>;
 }
 
 export const BUCKET_SIZES: Record<UtilizationTimeRange, number> = {

@@ -4,18 +4,12 @@ import { getQuotaSnapshots } from "@/lib/db/quotaSnapshots";
 import { getComboMetrics } from "@omniroute/open-sse/services/comboMetrics.ts";
 import { resolveNestedComboTargets } from "@omniroute/open-sse/services/combo.ts";
 import type {
+  ComboRecord,
   ComboHealthMetrics,
   ComboHealthResponse,
   QuotaSnapshotRow,
   UtilizationTimeRange,
 } from "@/shared/types/utilization";
-
-type ComboRecord = {
-  id?: string;
-  name?: string;
-  strategy?: string;
-  models?: unknown[];
-};
 
 type ModelUsageRow = {
   model: string | null;
@@ -60,12 +54,14 @@ type RuntimeTargetMetricView = {
   lastUsedAt?: string | null;
 };
 
-type HistoricalTargetUsageRow = {
-  combo_execution_key: string | null;
-  combo_step_id: string | null;
-  status: number | null;
-  duration: number | null;
-  timestamp: string | null;
+type HistoricalTargetAggregateRow = {
+  executionKey: string | null;
+  stepId: string | null;
+  requests: number | null;
+  successCount: number | null;
+  avgLatencyMs: number | null;
+  lastStatusCode: number | null;
+  lastUsedAt: string | null;
 };
 
 type HistoricalTargetMetricView = {
@@ -347,75 +343,78 @@ function getHistoricalTargetMetrics(
   const db = getDbInstance();
   const rows = db
     .prepare(
-      `SELECT
-         combo_execution_key,
-         combo_step_id,
-         status,
-         duration,
-         timestamp
-       FROM call_logs
-       WHERE combo_name = ?
-         AND timestamp >= ?
-         AND COALESCE(NULLIF(combo_execution_key, ''), NULLIF(combo_step_id, '')) IS NOT NULL
-       ORDER BY combo_execution_key ASC, combo_step_id ASC, timestamp DESC`
+      `WITH target_logs AS (
+         SELECT
+           id,
+           COALESCE(NULLIF(combo_execution_key, ''), NULLIF(combo_step_id, '')) AS executionKey,
+           NULLIF(combo_step_id, '') AS stepId,
+           status,
+           duration,
+           timestamp
+         FROM call_logs
+         WHERE combo_name = ?
+           AND timestamp >= ?
+           AND COALESCE(NULLIF(combo_execution_key, ''), NULLIF(combo_step_id, '')) IS NOT NULL
+       ),
+       aggregate_metrics AS (
+         SELECT
+           executionKey,
+           MAX(stepId) AS stepId,
+           COUNT(*) AS requests,
+           SUM(CASE WHEN status >= 200 AND status < 400 THEN 1 ELSE 0 END) AS successCount,
+           AVG(duration) AS avgLatencyMs,
+           MAX(timestamp) AS lastUsedAt
+         FROM target_logs
+         GROUP BY executionKey
+       ),
+       latest_metrics AS (
+         SELECT executionKey, stepId, status AS lastStatusCode
+         FROM (
+           SELECT
+             executionKey,
+             stepId,
+             status,
+             ROW_NUMBER() OVER (
+               PARTITION BY executionKey
+               ORDER BY timestamp DESC, id DESC
+             ) AS rowRank
+           FROM target_logs
+         )
+         WHERE rowRank = 1
+       )
+       SELECT
+         aggregate_metrics.executionKey,
+         COALESCE(latest_metrics.stepId, aggregate_metrics.stepId) AS stepId,
+         aggregate_metrics.requests,
+         aggregate_metrics.successCount,
+         aggregate_metrics.avgLatencyMs,
+         latest_metrics.lastStatusCode,
+         aggregate_metrics.lastUsedAt
+       FROM aggregate_metrics
+       LEFT JOIN latest_metrics ON latest_metrics.executionKey = aggregate_metrics.executionKey
+       ORDER BY aggregate_metrics.executionKey ASC`
     )
-    .all(comboName, since) as HistoricalTargetUsageRow[];
+    .all(comboName, since) as HistoricalTargetAggregateRow[];
 
-  const metrics = new Map<
-    string,
-    {
-      stepId: string | null;
-      requests: number;
-      successCount: number;
-      totalLatencyMs: number;
-      lastStatus: "ok" | "error" | null;
-      lastUsedAt: string | null;
-    }
-  >();
-
+  const metrics = new Map<string, HistoricalTargetMetricView>();
   for (const row of rows) {
-    const executionKey =
-      toNonEmptyString(row.combo_execution_key) || toNonEmptyString(row.combo_step_id);
+    const executionKey = toNonEmptyString(row.executionKey);
     if (!executionKey) continue;
 
-    let metric = metrics.get(executionKey);
-    if (!metric) {
-      const statusCode = toSafeNumber(row.status);
-      metric = {
-        stepId: toNonEmptyString(row.combo_step_id),
-        requests: 0,
-        successCount: 0,
-        totalLatencyMs: 0,
-        lastStatus: statusCode > 0 ? (statusCode < 400 ? "ok" : "error") : null,
-        lastUsedAt: toNonEmptyString(row.timestamp),
-      };
-      metrics.set(executionKey, metric);
-    }
-
-    metric.requests += 1;
-    metric.totalLatencyMs += toSafeNumber(row.duration);
-    if (toSafeNumber(row.status) >= 200 && toSafeNumber(row.status) < 400) {
-      metric.successCount += 1;
-    }
-    if (!metric.stepId) {
-      metric.stepId = toNonEmptyString(row.combo_step_id);
-    }
+    const requests = toSafeNumber(row.requests);
+    const successCount = toSafeNumber(row.successCount);
+    const statusCode = toSafeNumber(row.lastStatusCode);
+    metrics.set(executionKey, {
+      stepId: toNonEmptyString(row.stepId),
+      requests,
+      successRate: requests > 0 ? Math.round((successCount / requests) * 100) : 0,
+      avgLatencyMs: Math.round(toSafeNumber(row.avgLatencyMs)),
+      lastStatus: statusCode > 0 ? (statusCode < 400 ? "ok" : "error") : null,
+      lastUsedAt: toNonEmptyString(row.lastUsedAt),
+    });
   }
 
-  return new Map(
-    Array.from(metrics.entries()).map(([executionKey, metric]) => [
-      executionKey,
-      {
-        stepId: metric.stepId,
-        requests: metric.requests,
-        successRate:
-          metric.requests > 0 ? Math.round((metric.successCount / metric.requests) * 100) : 0,
-        avgLatencyMs: metric.requests > 0 ? Math.round(metric.totalLatencyMs / metric.requests) : 0,
-        lastStatus: metric.lastStatus,
-        lastUsedAt: metric.lastUsedAt,
-      },
-    ])
-  );
+  return metrics;
 }
 
 function buildTargetHealth(
