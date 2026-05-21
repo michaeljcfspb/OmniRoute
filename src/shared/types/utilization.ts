@@ -317,6 +317,14 @@ export interface ComboScoringInspectorResponse {
   combos: ComboScoringInspectorCombo[];
 }
 
+export interface ComboHealthDashboardResponse {
+  health: ComboHealthResponse;
+  forecast: ComboForecastResponse | null;
+  autopilot: ComboAutopilotReport | null;
+  scoring: ComboScoringInspectorResponse | null;
+  errors: Partial<Record<"forecast" | "autopilot" | "scoring", string>>;
+}
+
 export const BUCKET_SIZES: Record<UtilizationTimeRange, number> = {
   "1h": 1,
   "24h": 10,

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Card from "@/shared/components/Card";
 import Badge from "@/shared/components/Badge";
@@ -12,6 +13,7 @@ import type {
   ComboForecastHorizon,
   ComboForecastMetrics,
   ComboForecastResponse,
+  ComboHealthDashboardResponse,
   ComboHealthMetrics,
   ComboHealthResponse,
   ComboScoringInspectorCombo,
@@ -348,7 +350,7 @@ function ComboAutopilotPanel({ report }: { report: ComboAutopilotReport }) {
                   <div className="mt-4 flex flex-wrap gap-2">
                     {issue.actions.slice(0, 3).map((action) =>
                       action.href ? (
-                        <a
+                        <Link
                           key={`${issue.id}-${action.type}`}
                           href={action.href}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-black/5 px-3 py-1.5 text-xs font-medium text-text-main transition-colors hover:bg-black/5 dark:border-white/5 dark:hover:bg-white/5"
@@ -357,7 +359,7 @@ function ComboAutopilotPanel({ report }: { report: ComboAutopilotReport }) {
                             arrow_forward
                           </span>
                           {action.label}
-                        </a>
+                        </Link>
                       ) : null
                     )}
                   </div>
@@ -788,58 +790,26 @@ export default function ComboHealthTab() {
       setScoringError(null);
 
       try {
-        const [response, forecastResponse, autopilotResponse, scoringResponse] = await Promise.all([
-          fetch(`/api/usage/combo-health?range=${range}`, {
+        const response = await fetch(
+          `/api/usage/combo-health-dashboard?range=${range}&horizon=${horizon}`,
+          {
             signal: controller.signal,
-          }),
-          fetch(`/api/usage/combo-forecast?range=${range}&horizon=${horizon}`, {
-            signal: controller.signal,
-          }),
-          fetch(
-            `/api/usage/combo-health-autopilot?range=${range}&horizon=${horizon}&includeHealthy=true`,
-            {
-              signal: controller.signal,
-            }
-          ),
-          fetch(`/api/usage/combo-scoring-inspector?range=${range}&horizon=${horizon}`, {
-            signal: controller.signal,
-          }),
-        ]);
+          }
+        );
 
         if (!response.ok) {
           throw new Error("Failed to fetch combo health data");
         }
 
-        const result = (await response.json()) as ComboHealthResponse;
-        setData(result);
+        const result = (await response.json()) as ComboHealthDashboardResponse;
+        setData(result.health);
         setError(null);
-
-        if (forecastResponse.ok) {
-          const forecastResult = (await forecastResponse.json()) as ComboForecastResponse;
-          setForecastData(forecastResult);
-          setForecastError(null);
-        } else {
-          setForecastData(null);
-          setForecastError("Failed to fetch combo forecast data");
-        }
-
-        if (autopilotResponse.ok) {
-          const autopilotResult = (await autopilotResponse.json()) as ComboAutopilotReport;
-          setAutopilotData(autopilotResult);
-          setAutopilotError(null);
-        } else {
-          setAutopilotData(null);
-          setAutopilotError("Failed to fetch combo health autopilot data");
-        }
-
-        if (scoringResponse.ok) {
-          const scoringResult = (await scoringResponse.json()) as ComboScoringInspectorResponse;
-          setScoringData(scoringResult);
-          setScoringError(null);
-        } else {
-          setScoringData(null);
-          setScoringError("Failed to fetch intelligent scoring inspector data");
-        }
+        setForecastData(result.forecast);
+        setAutopilotData(result.autopilot);
+        setScoringData(result.scoring);
+        setForecastError(result.errors.forecast ?? null);
+        setAutopilotError(result.errors.autopilot ?? null);
+        setScoringError(result.errors.scoring ?? null);
       } catch (fetchError) {
         if ((fetchError as Error).name === "AbortError") {
           return;

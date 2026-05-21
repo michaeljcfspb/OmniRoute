@@ -396,12 +396,25 @@ export async function buildComboForecastResponse(opts: {
     combos = allCombos;
   }
 
+  if (combos.length === 0) {
+    return {
+      timeRange: opts.range,
+      horizon: opts.horizon,
+      asOf: new Date(now).toISOString(),
+      method: "linear_history",
+      combos: [],
+    };
+  }
+
   const comboNames = new Set(
     combos
       .map((combo) => (typeof combo.name === "string" ? combo.name : null))
       .filter((name): name is string => Boolean(name))
   );
-  const usageRows = await attachCosts(getComboForecastUsageRows({ since }));
+  const onlyComboName = comboNames.size === 1 ? Array.from(comboNames)[0] : undefined;
+  const usageRows = await attachCosts(
+    getComboForecastUsageRows({ since, comboName: onlyComboName })
+  );
   const rowsByCombo = new Map<string, CostedUsageRow[]>();
   for (const row of usageRows) {
     if (!comboNames.has(row.comboName)) continue;
