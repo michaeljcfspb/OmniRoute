@@ -19,10 +19,12 @@ const { normalizeComboStep } = await import("../../src/lib/combos/steps.ts");
 const { registerStrategy } = await import("../../open-sse/services/autoCombo/routerStrategy.ts");
 const core = await import("../../src/lib/db/core.ts");
 const settingsDb = await import("../../src/lib/db/settings.ts");
+const evalsDb = await import("../../src/lib/db/evals.ts");
 const { saveModelsDevCapabilities, clearModelsDevCapabilities } =
   await import("../../src/lib/modelsDevSync.ts");
 const { getComboMetrics, recordComboRequest, resetAllComboMetrics } =
   await import("../../open-sse/services/comboMetrics.ts");
+const { resetEvalRoutingCache } = await import("../../open-sse/services/evalRouting.ts");
 const { resetAllCircuitBreakers } = await import("../../src/shared/utils/circuitBreaker.ts");
 const { acquire: acquireSemaphore, resetAll: resetAllSemaphores } =
   await import("../../open-sse/services/rateLimitSemaphore.ts");
@@ -138,6 +140,7 @@ async function resetStorage() {
 
 test.beforeEach(async () => {
   resetAllComboMetrics();
+  resetEvalRoutingCache();
   resetAllCircuitBreakers();
   resetAllSemaphores();
   _resetAllDecks();
@@ -146,6 +149,7 @@ test.beforeEach(async () => {
 
 test.after(async () => {
   resetAllComboMetrics();
+  resetEvalRoutingCache();
   resetAllCircuitBreakers();
   resetAllSemaphores();
   _resetAllDecks();
@@ -1640,6 +1644,152 @@ test("handleComboChat preserves strategy order when context-aware filtering reje
 
   assert.equal(result.ok, true);
   assert.deepEqual(calls, ["openai/no-tools-a"]);
+});
+
+test("handleComboChat eval-driven routing prioritizes higher scoring evaluated targets", async () => {
+  evalsDb.saveEvalRun({
+    suiteId: "routing-quality",
+    suiteName: "Routing Quality",
+    target: { type: "model", id: "openai/eval-low", label: "Model: openai/eval-low" },
+    summary: { total: 10, passed: 4, failed: 6, passRate: 40 },
+    avgLatencyMs: 100,
+    results: [],
+    createdAt: new Date().toISOString(),
+  });
+  evalsDb.saveEvalRun({
+    suiteId: "routing-quality",
+    suiteName: "Routing Quality",
+    target: { type: "model", id: "openai/eval-high", label: "Model: openai/eval-high" },
+    summary: { total: 10, passed: 9, failed: 1, passRate: 90 },
+    avgLatencyMs: 120,
+    results: [],
+    createdAt: new Date().toISOString(),
+  });
+
+  const calls: any[] = [];
+  const result = await handleComboChat({
+    body: {},
+    combo: {
+      name: "eval-driven-priority",
+      strategy: "priority",
+      models: ["openai/eval-low", "openai/eval-high"],
+      config: {
+        evalRouting: {
+          enabled: true,
+          suiteIds: ["routing-quality"],
+          qualityWeight: 1,
+          latencyWeight: 0,
+        },
+      },
+    },
+    handleSingleModel: async (_body: any, modelStr: any) => {
+      calls.push(modelStr);
+      return okResponse();
+    },
+    isModelAvailable: async () => true,
+    log: createLog(),
+    settings: null,
+    relayOptions: null as any,
+    allCombos: null,
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, ["openai/eval-high"]);
+});
+
+test("handleComboChat eval-driven routing ignores stale and undersized eval runs", async () => {
+  evalsDb.saveEvalRun({
+    suiteId: "routing-quality",
+    suiteName: "Routing Quality",
+    target: { type: "model", id: "openai/stale-good", label: "Model: openai/stale-good" },
+    summary: { total: 10, passed: 10, failed: 0, passRate: 100 },
+    avgLatencyMs: 50,
+    results: [],
+    createdAt: "2020-01-01T00:00:00.000Z",
+  });
+  evalsDb.saveEvalRun({
+    suiteId: "routing-quality",
+    suiteName: "Routing Quality",
+    target: { type: "model", id: "openai/small-good", label: "Model: openai/small-good" },
+    summary: { total: 1, passed: 1, failed: 0, passRate: 100 },
+    avgLatencyMs: 50,
+    results: [],
+    createdAt: new Date().toISOString(),
+  });
+
+  const calls: any[] = [];
+  const result = await handleComboChat({
+    body: {},
+    combo: {
+      name: "eval-driven-ignored-runs",
+      strategy: "priority",
+      models: ["openai/stale-good", "openai/small-good", "openai/no-evals"],
+      config: {
+        evalRouting: {
+          enabled: true,
+          suiteIds: ["routing-quality"],
+          maxAgeHours: 24,
+          minCases: 5,
+          qualityWeight: 1,
+          latencyWeight: 0,
+        },
+      },
+    },
+    handleSingleModel: async (_body: any, modelStr: any) => {
+      calls.push(modelStr);
+      return okResponse();
+    },
+    isModelAvailable: async () => true,
+    log: createLog(),
+    settings: null,
+    relayOptions: null as any,
+    allCombos: null,
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, ["openai/stale-good"]);
+});
+
+test("handleComboChat eval-driven routing can match bare model eval target ids", async () => {
+  evalsDb.saveEvalRun({
+    suiteId: "routing-quality",
+    suiteName: "Routing Quality",
+    target: { type: "model", id: "bare-high", label: "Model: bare-high" },
+    summary: { total: 8, passed: 8, failed: 0, passRate: 100 },
+    avgLatencyMs: 200,
+    results: [],
+    createdAt: new Date().toISOString(),
+  });
+
+  const calls: any[] = [];
+  const result = await handleComboChat({
+    body: {},
+    combo: {
+      name: "eval-driven-bare-model-id",
+      strategy: "priority",
+      models: ["openai/bare-low", "openai/bare-high"],
+      config: {
+        evalRouting: {
+          enabled: true,
+          suiteIds: ["routing-quality"],
+          qualityWeight: 1,
+          latencyWeight: 0,
+        },
+      },
+    },
+    handleSingleModel: async (_body: any, modelStr: any) => {
+      calls.push(modelStr);
+      return okResponse();
+    },
+    isModelAvailable: async () => true,
+    log: createLog(),
+    settings: null,
+    relayOptions: null as any,
+    allCombos: null,
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, ["openai/bare-high"]);
 });
 
 test("handleComboChat normalizes legacy strategy names at runtime", async () => {

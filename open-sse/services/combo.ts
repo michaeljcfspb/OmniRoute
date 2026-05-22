@@ -49,6 +49,7 @@ import {
 import { getResolvedModelCapabilities, supportsToolCalling } from "./modelCapabilities.ts";
 import { estimateTokens } from "./contextManager.ts";
 import { getSessionConnection } from "./sessionManager.ts";
+import { orderTargetsByEvalScores } from "./evalRouting.ts";
 import { generateRoutingHints } from "./manifestAdapter";
 import type { RoutingHint } from "./manifestAdapter";
 import { getModelContextLimit } from "../../src/lib/modelCapabilities";
@@ -2913,6 +2914,7 @@ export async function handleComboChat({
     log.info("COMBO", `Context-optimized ordering: largest first (${orderedTargets[0]?.modelStr})`);
   }
 
+  orderedTargets = orderTargetsByEvalScores(orderedTargets, config.evalRouting, log);
   orderedTargets = filterTargetsByRequestCompatibility(orderedTargets, body, log);
 
   if (orderedTargets.length === 0) {
@@ -3365,8 +3367,9 @@ async function handleRoundRobinCombo({
 
   const orderedTargets = resolveComboTargets(combo, allCombos);
   const tagFilteredTargets = await applyRequestTagRouting(orderedTargets, body, log);
+  const evalRankedTargets = orderTargetsByEvalScores(tagFilteredTargets, config.evalRouting, log);
   const filteredTargets = filterTargetsByRequestCompatibility(
-    tagFilteredTargets,
+    evalRankedTargets,
     body,
     log,
     "Context-aware round-robin fallback"
