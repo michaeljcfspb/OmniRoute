@@ -904,15 +904,15 @@ export default function ProviderLimits() {
       {/* Account rows — expandable */}
       <div className="rounded-xl border border-border overflow-hidden bg-surface">
         {(() => {
-          // Compact "chip" representation of a quota for the collapsed row.
-          // Keeps the row visually predictable regardless of how many quotas
-          // a provider exposes (DeepSeek 1 chip vs Antigravity 3 chips).
-          const renderQuotaChips = (quotas: any[]) => {
+          // Inline quota summaries for the collapsed row. These intentionally
+          // include reset timing and progress bars so the key quota state is
+          // visible without expanding the account row.
+          const renderInlineQuotaSummary = (quotas: any[]) => {
             const MAX = 5;
             const visible = quotas.slice(0, MAX);
             const extras = quotas.length - visible.length;
             return (
-              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+              <div className="flex flex-col gap-1.5 min-w-0">
                 {visible.map((q, i) => {
                   if (q.isCredits) {
                     const colors = getBarColor(q.remainingPercentage ?? 0);
@@ -924,7 +924,7 @@ export default function ProviderLimits() {
                     return (
                       <span
                         key={i}
-                        className="inline-flex items-center gap-1 text-[11px] font-semibold py-0.5 px-2 rounded tabular-nums"
+                        className="inline-flex w-fit items-center gap-1 text-[11px] font-semibold py-0.5 px-2 rounded tabular-nums"
                         style={{ background: colors.bg, color: colors.text }}
                         title={`${formatQuotaLabel(q.name)} balance`}
                       >
@@ -939,16 +939,54 @@ export default function ProviderLimits() {
                   const pct = Math.round(pctRaw);
                   const colors = getBarColor(pct);
                   const shortName = q.displayName || formatQuotaLabel(q.name);
+                  const cd = formatCountdown(q.resetAt);
+                  const staleAfterReset = q.staleAfterReset === true;
+                  const usedNum = Number(q.used || 0);
+                  const totalNum = Number(q.total || 0);
+                  const showUsage = totalNum > 0 && !q.unlimited;
                   return (
-                    <span
+                    <div
                       key={i}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold py-0.5 px-2 rounded tabular-nums"
-                      style={{ background: colors.bg, color: colors.text }}
-                      title={`${shortName} — ${pct}% remaining`}
+                      className="min-w-0"
+                      title={`${shortName} — ${pct}% remaining${cd ? ` — resets in ${cd}` : ""}`}
                     >
-                      <span className="opacity-80 font-medium">{shortName}</span>
-                      <span>{pct}%</span>
-                    </span>
+                      <div className="flex items-center gap-2 min-w-0 leading-none">
+                        <span
+                          className="shrink-0 text-[11px] font-semibold py-0.5 px-2 rounded tabular-nums"
+                          style={{ background: colors.bg, color: colors.text }}
+                        >
+                          {shortName}
+                        </span>
+                        {showUsage && (
+                          <span className="hidden xl:inline text-[10px] text-text-muted tabular-nums truncate">
+                            {usedNum.toLocaleString()} / {totalNum.toLocaleString()}
+                          </span>
+                        )}
+                        {q.unlimited ? (
+                          <span className="text-[10px] text-text-muted shrink-0">
+                            {tr("unlimitedLabel", "Unlimited")}
+                          </span>
+                        ) : staleAfterReset ? (
+                          <span className="text-[10px] text-text-muted shrink-0">
+                            ⟳ {tr("refreshing", "Refreshing")}
+                          </span>
+                        ) : cd ? (
+                          <span className="text-[10px] text-text-muted shrink-0">⏱ {cd}</span>
+                        ) : null}
+                        <span
+                          className="ml-auto text-[11px] font-bold tabular-nums shrink-0"
+                          style={{ color: colors.text }}
+                        >
+                          {pct}%
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-sm bg-black/6 dark:bg-white/6 overflow-hidden">
+                        <div
+                          className="h-full rounded-sm transition-[width] duration-300 ease-out"
+                          style={{ width: `${Math.min(pct, 100)}%`, background: colors.bar }}
+                        />
+                      </div>
+                    </div>
                   );
                 })}
                 {extras > 0 && (
@@ -1172,7 +1210,7 @@ export default function ProviderLimits() {
                     </div>
                   </div>
 
-                  {/* Compact quota chips */}
+                  {/* Inline quota state */}
                   <div className="min-w-0 pr-2">
                     {isLoading ? (
                       <div className="flex items-center gap-1.5 text-text-muted text-xs">
@@ -1191,7 +1229,7 @@ export default function ProviderLimits() {
                     ) : quota?.message && (!quota.quotas || quota.quotas.length === 0) ? (
                       <div className="text-xs text-text-muted italic">{quota.message}</div>
                     ) : quota?.quotas?.length > 0 ? (
-                      renderQuotaChips(quota.quotas)
+                      renderInlineQuotaSummary(quota.quotas)
                     ) : (
                       <div className="text-xs text-text-muted italic">{t("noQuotaData")}</div>
                     )}

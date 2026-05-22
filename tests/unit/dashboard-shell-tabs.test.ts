@@ -70,3 +70,16 @@ test("provider limit status chips use English fallback labels", () => {
   assert.ok(source.includes('ok: tr("statHealthy", "Healthy")'));
   assert.doesNotMatch(source, /Crítico|Alerta|Saudável/);
 });
+
+test("provider limits collapsed rows show quota resets and progress bars inline", () => {
+  const source = readSource(
+    "src/app/(dashboard)/dashboard/usage/components/ProviderLimits/index.tsx"
+  );
+
+  assert.ok(source.includes("const renderInlineQuotaSummary = (quotas: any[]) =>"));
+  assert.ok(source.includes("const cd = formatCountdown(q.resetAt)"));
+  assert.ok(source.includes("⏱ {cd}"));
+  assert.ok(source.includes("h-1.5 rounded-sm"));
+  assert.ok(source.includes("Math.min(pct, 100)"));
+  assert.ok(source.includes("renderInlineQuotaSummary(quota.quotas)"));
+});
