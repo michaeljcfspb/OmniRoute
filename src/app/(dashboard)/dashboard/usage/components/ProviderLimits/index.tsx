@@ -945,7 +945,7 @@ export default function ProviderLimits() {
             const visible = quotas.slice(0, MAX);
             const extras = quotas.length - visible.length;
             return (
-              <div className="flex flex-col gap-1.5 min-w-0">
+              <div className="flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0">
                 {visible.map((q, i) => {
                   if (q.isCredits) {
                     const tone = getQuotaToneClasses(q.remainingPercentage ?? 0);
@@ -957,7 +957,7 @@ export default function ProviderLimits() {
                     return (
                       <span
                         key={i}
-                        className={`inline-flex w-fit items-center gap-1 text-[11px] font-semibold py-0.5 px-2 rounded tabular-nums ${tone.chip}`}
+                        className={`inline-flex w-fit items-center gap-1 text-[10px] font-semibold py-0.5 px-1.5 rounded tabular-nums ${tone.chip}`}
                         title={`${formatQuotaLabel(q.name)} balance`}
                       >
                         🪙 {sym}
@@ -979,42 +979,37 @@ export default function ProviderLimits() {
                   return (
                     <div
                       key={i}
-                      className="min-w-0"
+                      className="inline-flex items-center gap-1.5 min-w-0 leading-none"
                       title={`${shortName} — ${pct}% remaining${cd ? ` — resets in ${cd}` : ""}`}
                     >
-                      <div className="flex items-center gap-2 min-w-0 leading-none">
-                        <span
-                          className={`shrink-0 text-[11px] font-semibold py-0.5 px-2 rounded tabular-nums ${tone.chip}`}
-                        >
-                          {shortName}
-                        </span>
-                        {showUsage && (
-                          <span className="hidden xl:inline text-[10px] text-text-muted tabular-nums truncate">
-                            {usedNum.toLocaleString()} / {totalNum.toLocaleString()}
-                          </span>
-                        )}
-                        {q.unlimited ? (
-                          <span className="text-[10px] text-text-muted shrink-0">
-                            {tr("unlimitedLabel", "Unlimited")}
-                          </span>
-                        ) : staleAfterReset ? (
-                          <span className="text-[10px] text-text-muted shrink-0">
-                            ⟳ {tr("refreshing", "Refreshing")}
-                          </span>
-                        ) : cd ? (
-                          <span className="text-[10px] text-text-muted shrink-0">⏱ {cd}</span>
-                        ) : null}
-                        <span
-                          className={`ml-auto text-[11px] font-bold tabular-nums shrink-0 ${tone.text}`}
-                        >
-                          {pct}%
-                        </span>
-                      </div>
-                      <div className="mt-1 h-1.5 rounded-sm bg-black/6 dark:bg-white/6 overflow-hidden">
+                      <span
+                        className={`shrink-0 text-[10px] font-semibold py-0.5 px-1.5 rounded tabular-nums ${tone.chip}`}
+                      >
+                        {shortName}
+                      </span>
+                      <span className="text-[10px] text-text-muted tabular-nums truncate shrink-0 max-w-34">
+                        {showUsage
+                          ? `${usedNum.toLocaleString()} / ${totalNum.toLocaleString()}`
+                          : ""}
+                        {showUsage && (q.unlimited || staleAfterReset || cd) ? " · " : ""}
+                        {q.unlimited
+                          ? tr("unlimitedLabel", "Unlimited")
+                          : staleAfterReset
+                            ? `⟳ ${tr("refreshing", "Refreshing")}`
+                            : cd
+                              ? `⏱ ${cd}`
+                              : ""}
+                      </span>
+                      <div className="h-1 w-14 rounded-sm bg-black/6 dark:bg-white/6 overflow-hidden shrink-0">
                         <div
                           className={`h-full rounded-sm transition-[width] duration-300 ease-out ${tone.bar} ${getQuotaBarWidthClass(pct)}`}
                         />
                       </div>
+                      <span
+                        className={`text-[10px] font-bold tabular-nums shrink-0 w-8 text-right ${tone.text}`}
+                      >
+                        {pct}%
+                      </span>
                     </div>
                   );
                 })}
