@@ -1065,7 +1065,7 @@ async function handleSingleModelChat(
       // Daily quota lockout overrides subsequent rate_limited lockout, ensuring lockout until tomorrow 0:00
       let dailyQuotaExhausted = false;
       const errorStr = String(result.error || "");
-      if (isCombo && result.status === 429) {
+      if (isCombo && comboStrategy !== "context-relay" && result.status === 429) {
         return result.response;
       }
 

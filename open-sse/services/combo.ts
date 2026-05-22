@@ -7,12 +7,14 @@
 
 import {
   checkFallbackError,
+  classifyErrorText,
   formatRetryAfter,
   getRuntimeProviderProfile,
   recordProviderFailure,
   isProviderFailureCode,
   isProviderExhaustedReason,
 } from "./accountFallback.ts";
+import { RateLimitReason } from "../config/constants.ts";
 import { errorResponse, unavailableResponse } from "../utils/error.ts";
 import { recordComboIntent, recordComboRequest, getComboMetrics } from "./comboMetrics.ts";
 import { resolveComboConfig, getDefaultComboConfig } from "./comboConfig.ts";
@@ -2883,8 +2885,14 @@ export async function handleComboChat({
         const { cooldownMs } = fallbackResult;
 
         // #1731: If the entire provider quota is exhausted, mark it so subsequent
-        // same-provider targets are skipped immediately.
-        if (provider && provider !== "unknown" && isProviderExhaustedReason(fallbackResult)) {
+        // same-provider targets are skipped immediately. API-key 429s still use
+        // the short resilience cooldown, but explicit quota text should stop the
+        // combo from trying another target for the same provider in this request.
+        const providerExhausted =
+          Boolean(provider && provider !== "unknown") &&
+          (isProviderExhaustedReason(fallbackResult) ||
+            classifyErrorText(errorText) === RateLimitReason.QUOTA_EXHAUSTED);
+        if (providerExhausted) {
           exhaustedProviders.add(provider);
           log.info(
             "COMBO",
@@ -2909,7 +2917,7 @@ export async function handleComboChat({
         // Check if this is a transient error worth retrying on same model
         const isTransient =
           !isStreamReadinessFailure && [408, 429, 500, 502, 503, 504].includes(result.status);
-        if (retry < maxRetries && isTransient) {
+        if (retry < maxRetries && isTransient && !providerExhausted) {
           continue; // Retry same model
         }
 
@@ -3266,18 +3274,25 @@ async function handleRoundRobinCombo({
         );
         const { cooldownMs } = fallbackResult;
 
-        // #1731: If the entire provider quota is exhausted, mark it so subsequent
-        // same-provider targets are skipped immediately.
-        if (provider && provider !== "unknown" && isProviderExhaustedReason(fallbackResult)) {
-          exhaustedProviders.add(provider);
-          log.info("COMBO-RR", `Provider ${provider} quota exhausted — marking for skip (#1731)`);
-        }
-
         const isAllAccountsRateLimited = isAllAccountsRateLimitedResponse(
           result.status,
           result.headers?.get("content-type") ?? null,
           errorText
         );
+
+        // #1731: If the entire provider quota is exhausted, mark it so subsequent
+        // same-provider targets are skipped immediately. API-key 429s still use
+        // the short resilience cooldown, but explicit quota text should stop the
+        // combo from trying another target for the same provider in this request.
+        const providerExhausted =
+          Boolean(provider && provider !== "unknown") &&
+          (isProviderExhaustedReason(fallbackResult) ||
+            classifyErrorText(errorText) === RateLimitReason.QUOTA_EXHAUSTED ||
+            isAllAccountsRateLimited);
+        if (providerExhausted) {
+          exhaustedProviders.add(provider);
+          log.info("COMBO-RR", `Provider ${provider} quota exhausted — marking for skip (#1731)`);
+        }
 
         // Transient errors → mark in semaphore so round-robin stops stampeding this target.
         if (
@@ -3294,16 +3309,12 @@ async function handleRoundRobinCombo({
             "COMBO-RR",
             `All accounts rate-limited for ${modelStr}, falling back to next model`
           );
-          // #1731: All-accounts-rate-limited 503 also counts as provider exhaustion
-          if (provider && provider !== "unknown") {
-            exhaustedProviders.add(provider);
-          }
         }
 
         // Transient error → retry same model
         const isTransient =
           !isStreamReadinessFailure && [408, 429, 500, 502, 503, 504].includes(result.status);
-        if (retry < maxRetries && isTransient) {
+        if (retry < maxRetries && isTransient && !providerExhausted) {
           continue;
         }
 

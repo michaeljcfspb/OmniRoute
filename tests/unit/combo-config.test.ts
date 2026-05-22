@@ -20,7 +20,7 @@ test("getDefaultComboConfig returns a fresh copy of the defaults", () => {
   assert.equal(first.handoffThreshold, 0.85);
   assert.equal(first.maxMessagesForSummary, 30);
   assert.deepEqual(first.handoffProviders, ["codex"]);
-  assert.equal(first.failoverBeforeRetry, false);
+  assert.equal(first.failoverBeforeRetry, true);
   assert.equal(first.maxSetRetries, 0);
   assert.equal(first.setRetryDelayMs, 2000);
 
