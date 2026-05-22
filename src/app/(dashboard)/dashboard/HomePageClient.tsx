@@ -162,12 +162,16 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
 
   useEffect(() => {
     let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let controller: AbortController | null = null;
 
     const loadTopologyActivity = async () => {
+      const currentController = new AbortController();
+      controller = currentController;
       try {
         const [activeRes, metricsRes] = await Promise.all([
-          fetch("/api/logs/active", { cache: "no-store" }),
-          fetch("/api/provider-metrics", { cache: "no-store" }),
+          fetch("/api/logs/active", { cache: "no-store", signal: currentController.signal }),
+          fetch("/api/provider-metrics", { cache: "no-store", signal: currentController.signal }),
         ]);
 
         if (activeRes.ok) {
@@ -184,17 +188,25 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
           }
         }
       } catch (error) {
-        if (!cancelled) {
+        const isAbortError = error instanceof DOMException && error.name === "AbortError";
+        if (!cancelled && !isAbortError) {
           console.error("Failed to load topology activity:", error);
+        }
+      } finally {
+        if (controller === currentController) {
+          controller = null;
+        }
+        if (!cancelled) {
+          timeoutId = setTimeout(loadTopologyActivity, 3000);
         }
       }
     };
 
     loadTopologyActivity();
-    const interval = setInterval(loadTopologyActivity, 3000);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timeoutId) clearTimeout(timeoutId);
+      controller?.abort();
     };
   }, []);
 

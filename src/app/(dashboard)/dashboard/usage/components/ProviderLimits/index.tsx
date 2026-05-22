@@ -31,6 +31,29 @@ const MIN_FETCH_INTERVAL_MS = 30000; // Debounce per-connection fetches
 const QUOTA_BAR_GREEN_THRESHOLD = 50;
 const QUOTA_BAR_YELLOW_THRESHOLD = 20;
 const LIMITS_GRID_TEMPLATE_COLUMNS = "minmax(220px,260px) minmax(240px,1fr) 104px 76px 56px";
+const QUOTA_BAR_WIDTH_CLASSES = [
+  "w-0",
+  "w-[5%]",
+  "w-[10%]",
+  "w-[15%]",
+  "w-[20%]",
+  "w-[25%]",
+  "w-[30%]",
+  "w-[35%]",
+  "w-[40%]",
+  "w-[45%]",
+  "w-[50%]",
+  "w-[55%]",
+  "w-[60%]",
+  "w-[65%]",
+  "w-[70%]",
+  "w-[75%]",
+  "w-[80%]",
+  "w-[85%]",
+  "w-[90%]",
+  "w-[95%]",
+  "w-full",
+] as const;
 
 // Provider display config
 const PROVIDER_CONFIG = {
@@ -165,15 +188,24 @@ const STATUS_TONE: Record<
   },
 };
 
-// Get bar color based on remaining percentage
-function getBarColor(remainingPercentage) {
+// Get Tailwind tone classes based on remaining percentage.
+function getQuotaToneClasses(remainingPercentage) {
   if (remainingPercentage > QUOTA_BAR_GREEN_THRESHOLD) {
-    return { bar: "#22c55e", text: "#22c55e", bg: "rgba(34,197,94,0.12)" };
+    return { bar: "bg-green-500", text: "text-green-500", chip: "bg-green-500/10 text-green-500" };
   }
   if (remainingPercentage > QUOTA_BAR_YELLOW_THRESHOLD) {
-    return { bar: "#eab308", text: "#eab308", bg: "rgba(234,179,8,0.12)" };
+    return {
+      bar: "bg-yellow-500",
+      text: "text-yellow-500",
+      chip: "bg-yellow-500/10 text-yellow-500",
+    };
   }
-  return { bar: "#ef4444", text: "#ef4444", bg: "rgba(239,68,68,0.12)" };
+  return { bar: "bg-red-500", text: "text-red-500", chip: "bg-red-500/10 text-red-500" };
+}
+
+function getQuotaBarWidthClass(remainingPercentage) {
+  const pct = Math.min(Math.max(Math.round(Number(remainingPercentage) || 0), 0), 100);
+  return QUOTA_BAR_WIDTH_CLASSES[Math.ceil(pct / 5)];
 }
 
 // Short label for a quota-window key, used in the inline cutoff summary
@@ -915,7 +947,7 @@ export default function ProviderLimits() {
               <div className="flex flex-col gap-1.5 min-w-0">
                 {visible.map((q, i) => {
                   if (q.isCredits) {
-                    const colors = getBarColor(q.remainingPercentage ?? 0);
+                    const tone = getQuotaToneClasses(q.remainingPercentage ?? 0);
                     const sym = CURRENCY_SYMBOLS[q.currency] ?? q.currency ?? "";
                     const amount = (q.creditCount ?? q.remaining ?? 0).toLocaleString(undefined, {
                       minimumFractionDigits: 2,
@@ -924,8 +956,7 @@ export default function ProviderLimits() {
                     return (
                       <span
                         key={i}
-                        className="inline-flex w-fit items-center gap-1 text-[11px] font-semibold py-0.5 px-2 rounded tabular-nums"
-                        style={{ background: colors.bg, color: colors.text }}
+                        className={`inline-flex w-fit items-center gap-1 text-[11px] font-semibold py-0.5 px-2 rounded tabular-nums ${tone.chip}`}
                         title={`${formatQuotaLabel(q.name)} balance`}
                       >
                         🪙 {sym}
@@ -937,7 +968,7 @@ export default function ProviderLimits() {
                     ? 100
                     : (q.remainingPercentage ?? calculatePercentage(q.used, q.total));
                   const pct = Math.round(pctRaw);
-                  const colors = getBarColor(pct);
+                  const tone = getQuotaToneClasses(pct);
                   const shortName = q.displayName || formatQuotaLabel(q.name);
                   const cd = formatCountdown(q.resetAt);
                   const staleAfterReset = q.staleAfterReset === true;
@@ -952,8 +983,7 @@ export default function ProviderLimits() {
                     >
                       <div className="flex items-center gap-2 min-w-0 leading-none">
                         <span
-                          className="shrink-0 text-[11px] font-semibold py-0.5 px-2 rounded tabular-nums"
-                          style={{ background: colors.bg, color: colors.text }}
+                          className={`shrink-0 text-[11px] font-semibold py-0.5 px-2 rounded tabular-nums ${tone.chip}`}
                         >
                           {shortName}
                         </span>
@@ -974,16 +1004,14 @@ export default function ProviderLimits() {
                           <span className="text-[10px] text-text-muted shrink-0">⏱ {cd}</span>
                         ) : null}
                         <span
-                          className="ml-auto text-[11px] font-bold tabular-nums shrink-0"
-                          style={{ color: colors.text }}
+                          className={`ml-auto text-[11px] font-bold tabular-nums shrink-0 ${tone.text}`}
                         >
                           {pct}%
                         </span>
                       </div>
                       <div className="mt-1 h-1.5 rounded-sm bg-black/6 dark:bg-white/6 overflow-hidden">
                         <div
-                          className="h-full rounded-sm transition-[width] duration-300 ease-out"
-                          style={{ width: `${Math.min(pct, 100)}%`, background: colors.bar }}
+                          className={`h-full rounded-sm transition-[width] duration-300 ease-out ${tone.bar} ${getQuotaBarWidthClass(pct)}`}
                         />
                       </div>
                     </div>
@@ -1000,7 +1028,7 @@ export default function ProviderLimits() {
           // a status badge. Reused for credits via a branch on isCredits.
           const renderQuotaDetail = (q: any, i: number) => {
             if (q.isCredits) {
-              const colors = getBarColor(q.remainingPercentage ?? 0);
+              const tone = getQuotaToneClasses(q.remainingPercentage ?? 0);
               const sym = CURRENCY_SYMBOLS[q.currency] ?? q.currency ?? "";
               const amount = (q.creditCount ?? q.remaining ?? 0).toLocaleString(undefined, {
                 minimumFractionDigits: 2,
@@ -1012,10 +1040,7 @@ export default function ProviderLimits() {
                   className="rounded-md border border-border bg-bg/40 px-3 py-2.5 flex items-center justify-between gap-3"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="material-symbols-outlined text-[18px]"
-                      style={{ color: colors.text }}
-                    >
+                    <span className={`material-symbols-outlined text-[18px] ${tone.text}`}>
                       paid
                     </span>
                     <div className="min-w-0">
@@ -1027,10 +1052,7 @@ export default function ProviderLimits() {
                       </div>
                     </div>
                   </div>
-                  <div
-                    className="text-[16px] font-bold tabular-nums"
-                    style={{ color: colors.text }}
-                  >
+                  <div className={`text-[16px] font-bold tabular-nums ${tone.text}`}>
                     {sym}
                     {amount}
                   </div>
@@ -1041,7 +1063,7 @@ export default function ProviderLimits() {
               ? 100
               : (q.remainingPercentage ?? calculatePercentage(q.used, q.total));
             const pct = Math.round(pctRaw);
-            const colors = getBarColor(pct);
+            const tone = getQuotaToneClasses(pct);
             const cd = formatCountdown(q.resetAt);
             const shortName = q.displayName || formatQuotaLabel(q.name);
             const staleAfterReset = q.staleAfterReset === true;
@@ -1053,8 +1075,7 @@ export default function ProviderLimits() {
                 <div className="flex items-center justify-between gap-3 mb-1.5">
                   <div className="flex items-center gap-2 min-w-0">
                     <span
-                      className="text-[12px] font-semibold py-0.5 px-2 rounded"
-                      style={{ background: colors.bg, color: colors.text }}
+                      className={`text-[12px] font-semibold py-0.5 px-2 rounded ${tone.chip}`}
                       title={q.modelKey || q.name}
                     >
                       {shortName}
@@ -1081,8 +1102,7 @@ export default function ProviderLimits() {
                       </span>
                     ) : null}
                     <span
-                      className="text-[13px] font-bold tabular-nums min-w-10 text-right"
-                      style={{ color: colors.text }}
+                      className={`text-[13px] font-bold tabular-nums min-w-10 text-right ${tone.text}`}
                     >
                       {pct}%
                     </span>
@@ -1090,8 +1110,7 @@ export default function ProviderLimits() {
                 </div>
                 <div className="h-2 rounded-sm bg-black/6 dark:bg-white/6 overflow-hidden">
                   <div
-                    className="h-full rounded-sm transition-[width] duration-300 ease-out"
-                    style={{ width: `${Math.min(pct, 100)}%`, background: colors.bar }}
+                    className={`h-full rounded-sm transition-[width] duration-300 ease-out ${tone.bar} ${getQuotaBarWidthClass(pct)}`}
                   />
                 </div>
               </div>

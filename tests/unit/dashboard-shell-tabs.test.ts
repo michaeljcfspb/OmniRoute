@@ -80,6 +80,7 @@ test("provider limits collapsed rows show quota resets and progress bars inline"
   assert.ok(source.includes("const cd = formatCountdown(q.resetAt)"));
   assert.ok(source.includes("⏱ {cd}"));
   assert.ok(source.includes("h-1.5 rounded-sm"));
-  assert.ok(source.includes("Math.min(pct, 100)"));
+  assert.ok(source.includes("getQuotaBarWidthClass(pct)"));
+  assert.ok(source.includes("getQuotaToneClasses(pct)"));
   assert.ok(source.includes("renderInlineQuotaSummary(quota.quotas)"));
 });

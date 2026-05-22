@@ -84,3 +84,15 @@ test("GET /api/provider-metrics includes provider recency and error topology", a
   assert.equal(body.topology.lastProvider, "openai");
   assert.equal(body.topology.errorProvider, "openai");
 });
+
+test("GET /api/provider-metrics returns sanitized 500 when metrics cannot be loaded", async () => {
+  const db = core.getDbInstance();
+  db.close();
+
+  const response = await providerMetricsRoute.GET();
+  const body = await response.json();
+
+  assert.equal(response.status, 500);
+  assert.equal(body.error?.message, "Failed to load provider metrics");
+  assert.equal(JSON.stringify(body).includes("SqliteError"), false);
+});
