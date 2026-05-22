@@ -1132,11 +1132,7 @@ export function checkFallbackError(
 
   const isRateLimitStatus = status === HTTP_STATUS.RATE_LIMITED;
   const preserveQuota429 = shouldPreserveQuotaSignalsFor429(provider);
-  const rateLimitTextReason = isRateLimitStatus
-    ? classifyErrorText(errorStr)
-    : RateLimitReason.UNKNOWN;
-  const hasExplicitQuota429Signal = rateLimitTextReason === RateLimitReason.QUOTA_EXHAUSTED;
-  const shouldUseQuotaSignal = !isRateLimitStatus || preserveQuota429 || hasExplicitQuota429Signal;
+  const shouldUseQuotaSignal = !isRateLimitStatus || preserveQuota429;
 
   // Check error message FIRST - specific patterns take priority over status codes
   if (errorText) {
@@ -1222,7 +1218,7 @@ export function checkFallbackError(
   }
 
   const configuredRule =
-    isRateLimitStatus && !preserveQuota429 && !hasExplicitQuota429Signal
+    isRateLimitStatus && !preserveQuota429
       ? matchErrorRuleByStatus(status)
       : findMatchingErrorRule(status, errorStr);
   if (configuredRule) {
