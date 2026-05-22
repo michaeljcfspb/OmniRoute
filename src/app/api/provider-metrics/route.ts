@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import pino from "pino";
 
 import { buildErrorBody } from "@omniroute/open-sse/utils/error.ts";
 
 import { getDbInstance } from "@/lib/db/core";
+
+const logger = pino({ name: "provider-metrics-api" });
 
 type JsonRecord = Record<string, unknown>;
 
@@ -125,7 +128,7 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.error("[providers/metrics] Error:", error);
+    logger.error({ err: error }, "Failed to load provider metrics");
     return NextResponse.json(buildErrorBody(500, "Failed to load provider metrics"), {
       status: 500,
     });

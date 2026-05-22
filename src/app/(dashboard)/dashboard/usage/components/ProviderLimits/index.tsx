@@ -100,6 +100,7 @@ const TIER_FILTERS = [
 
 type PurchaseTypeKey = "all" | "oauth-free" | "oauth-sub" | "apikey";
 type StatusKey = "all" | "critical" | "alert" | "ok" | "empty";
+type QuotaToneClasses = { bar: string; text: string; chip: string };
 
 const PURCHASE_TYPES: Array<{ key: PurchaseTypeKey; labelKey: string; fallback: string }> = [
   { key: "all", labelKey: "purchaseAll", fallback: "All" },
@@ -189,7 +190,7 @@ const STATUS_TONE: Record<
 };
 
 // Get Tailwind tone classes based on remaining percentage.
-function getQuotaToneClasses(remainingPercentage) {
+function getQuotaToneClasses(remainingPercentage: number): QuotaToneClasses {
   if (remainingPercentage > QUOTA_BAR_GREEN_THRESHOLD) {
     return { bar: "bg-green-500", text: "text-green-500", chip: "bg-green-500/10 text-green-500" };
   }
@@ -203,7 +204,7 @@ function getQuotaToneClasses(remainingPercentage) {
   return { bar: "bg-red-500", text: "text-red-500", chip: "bg-red-500/10 text-red-500" };
 }
 
-function getQuotaBarWidthClass(remainingPercentage) {
+function getQuotaBarWidthClass(remainingPercentage: number): string {
   const pct = Math.min(Math.max(Math.round(Number(remainingPercentage) || 0), 0), 100);
   return QUOTA_BAR_WIDTH_CLASSES[Math.ceil(pct / 5)];
 }

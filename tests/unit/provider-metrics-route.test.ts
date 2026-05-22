@@ -94,5 +94,6 @@ test("GET /api/provider-metrics returns sanitized 500 when metrics cannot be loa
 
   assert.equal(response.status, 500);
   assert.equal(body.error?.message, "Failed to load provider metrics");
+  assert.equal(body.error?.message.includes("at /"), false);
   assert.equal(JSON.stringify(body).includes("SqliteError"), false);
 });
