@@ -91,6 +91,7 @@ function getCurrentUtcDay() {
 }
 
 test.beforeEach(async () => {
+  delete process.env.DEFAULT_RATE_LIMIT_PER_DAY;
   await resetStorage();
 });
 
@@ -467,15 +468,53 @@ test("enforceApiKeyPolicy does not rate-limit unrestricted keys by default", asy
   const unrestrictedKey = await createKeyWithPolicy({ allowedModels: ["openai/*"] });
   const policy = await loadPolicy("default-no-request-limit");
 
-  // 5 calls is enough to prove no rate-limit fires; 1005 DB-backed iterations
-  // were flagged as unnecessary overhead in code review.
-  for (let i = 0; i < 5; i += 1) {
+  for (let i = 0; i < 1005; i += 1) {
     const result = await policy.enforceApiKeyPolicy(
       makePolicyRequest(unrestrictedKey.key),
       "openai/gpt-4.1"
     );
     assert.equal(result.rejection, null);
   }
+});
+
+test("enforceApiKeyPolicy enforces explicit env fallback request limits", async () => {
+  process.env.DEFAULT_RATE_LIMIT_PER_DAY = "1";
+  const unrestrictedKey = await createKeyWithPolicy({ allowedModels: ["openai/*"] });
+  const policy = await loadPolicy("env-request-limit");
+
+  const first = await policy.enforceApiKeyPolicy(
+    makePolicyRequest(unrestrictedKey.key),
+    "openai/gpt-4.1"
+  );
+  assert.equal(first.rejection, null);
+
+  const second = await policy.enforceApiKeyPolicy(
+    makePolicyRequest(unrestrictedKey.key),
+    "openai/gpt-4.1"
+  );
+  assert.equal(second.rejection.status, 429);
+  assert.match(await readErrorMessage(second.rejection), /Request limit exceeded/);
+});
+
+test("enforceApiKeyPolicy enforces custom multi-window rate limits", async () => {
+  const limitedKey = await createKeyWithPolicy({
+    allowedModels: ["openai/*"],
+    rateLimits: [{ limit: 1, window: 60 }],
+  });
+  const policy = await loadPolicy("custom-request-limits");
+
+  const first = await policy.enforceApiKeyPolicy(
+    makePolicyRequest(limitedKey.key),
+    "openai/gpt-4.1"
+  );
+  assert.equal(first.rejection, null);
+
+  const second = await policy.enforceApiKeyPolicy(
+    makePolicyRequest(limitedKey.key),
+    "openai/gpt-4.1"
+  );
+  assert.equal(second.rejection.status, 429);
+  assert.match(await readErrorMessage(second.rejection), /Request limit exceeded/);
 });
 
 test("enforceApiKeyPolicy enforces combo allowlists separately from model allowlists", async () => {

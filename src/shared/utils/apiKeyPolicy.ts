@@ -21,12 +21,11 @@ const LEGACY_DEFAULT_RATE_LIMIT_PER_DAY = 1000;
 
 export function buildDefaultRateLimits(rawValue?: string): RateLimitRule[] {
   const normalized = rawValue?.trim();
-  const limitPerDay =
-    normalized === undefined || normalized === ""
-      ? LEGACY_DEFAULT_RATE_LIMIT_PER_DAY
-      : /^\d+$/.test(normalized)
-        ? Number(normalized)
-        : LEGACY_DEFAULT_RATE_LIMIT_PER_DAY;
+  if (normalized === undefined || normalized === "") return [];
+
+  const limitPerDay = /^\d+$/.test(normalized)
+    ? Number(normalized)
+    : LEGACY_DEFAULT_RATE_LIMIT_PER_DAY;
 
   if (limitPerDay === 0) return [];
 
@@ -37,7 +36,7 @@ export function buildDefaultRateLimits(rawValue?: string): RateLimitRule[] {
   ];
 }
 
-const DEFAULT_RATE_LIMITS: RateLimitRule[] = buildDefaultRateLimits(
+const ENV_DEFAULT_RATE_LIMITS: RateLimitRule[] = buildDefaultRateLimits(
   process.env.DEFAULT_RATE_LIMIT_PER_DAY
 );
 
@@ -369,13 +368,13 @@ export async function enforceApiKeyPolicy(
 
   // ── Check 5: Generic Multi-Window Rate Limits ──
   if (apiKeyInfo.id) {
-    const rulesToApply =
-      apiKeyInfo.rateLimits && apiKeyInfo.rateLimits.length > 0
-        ? [...apiKeyInfo.rateLimits]
-        : [...DEFAULT_RATE_LIMITS];
+    const hasCustomRateLimits = Boolean(apiKeyInfo.rateLimits && apiKeyInfo.rateLimits.length > 0);
+    const rulesToApply = hasCustomRateLimits
+      ? [...(apiKeyInfo.rateLimits as RateLimitRule[])]
+      : [...ENV_DEFAULT_RATE_LIMITS];
 
     // Combine with legacy limits if they exist and custom rate limits aren't set
-    if (!apiKeyInfo.rateLimits || apiKeyInfo.rateLimits.length === 0) {
+    if (!hasCustomRateLimits) {
       if (apiKeyInfo.maxRequestsPerDay) {
         rulesToApply.push({ limit: apiKeyInfo.maxRequestsPerDay, window: 86400 });
       }
@@ -384,19 +383,21 @@ export async function enforceApiKeyPolicy(
       }
     }
 
-    const rateLimitResult = await checkRateLimit(apiKeyInfo.id, rulesToApply);
-    if (!rateLimitResult.allowed) {
-      const failedWindowStr = rateLimitResult.failedWindow
-        ? ` (${rateLimitResult.failedWindow}s window)`
-        : "";
-      return {
-        apiKey,
-        apiKeyInfo,
-        rejection: errorResponse(
-          HTTP_STATUS.RATE_LIMITED,
-          `Request limit exceeded${failedWindowStr}. Please try again later.`
-        ),
-      };
+    if (rulesToApply.length > 0) {
+      const rateLimitResult = await checkRateLimit(apiKeyInfo.id, rulesToApply);
+      if (!rateLimitResult.allowed) {
+        const failedWindowStr = rateLimitResult.failedWindow
+          ? ` (${rateLimitResult.failedWindow}s window)`
+          : "";
+        return {
+          apiKey,
+          apiKeyInfo,
+          rejection: errorResponse(
+            HTTP_STATUS.RATE_LIMITED,
+            `Request limit exceeded${failedWindowStr}. Please try again later.`
+          ),
+        };
+      }
     }
   }
 
