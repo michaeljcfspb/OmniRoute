@@ -137,4 +137,44 @@ describe("buildCostExplorerRows", () => {
     assert.equal(rows.length, 1);
     assert.equal(rows[0].sharePct, 40);
   });
+
+  it("keeps share percentages cost-based when paid and free rows are mixed", () => {
+    const mixedAnalytics: CostExplorerAnalyticsPayload = {
+      summary: {
+        totalCost: 100,
+        totalRequests: 200,
+      },
+      byProvider: [
+        {
+          provider: "paid-a",
+          requests: 100,
+          totalTokens: 10000,
+          cost: 60,
+        },
+        {
+          provider: "paid-b",
+          requests: 80,
+          totalTokens: 8000,
+          cost: 40,
+        },
+        {
+          provider: "free",
+          requests: 20,
+          totalTokens: 2000,
+          cost: 0,
+        },
+      ],
+    };
+
+    const rows = buildCostExplorerRows({ analytics: mixedAnalytics, groupBy: "provider" });
+
+    assert.deepEqual(
+      rows.map((row) => row.sharePct),
+      [60, 40, 0]
+    );
+    assert.equal(
+      rows.reduce((sum, row) => sum + row.sharePct, 0),
+      100
+    );
+  });
 });

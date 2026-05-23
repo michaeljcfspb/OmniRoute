@@ -133,8 +133,9 @@ export function buildCostExplorerRows({
       const requests = toFiniteNumber(row.requests);
       const cost = toFiniteNumber(row.cost);
       const totalTokens = toFiniteNumber(row.totalTokens);
-      const shareBase = totalCost > 0 && cost > 0 ? totalCost : totalRequests;
-      const shareValue = totalCost > 0 && cost > 0 ? cost : requests;
+      const useCostForShare = totalCost > 0;
+      const shareBase = useCostForShare ? totalCost : totalRequests;
+      const shareValue = useCostForShare ? cost : requests;
 
       return {
         id: `${groupBy}:${name}:${detail}:${index}`,

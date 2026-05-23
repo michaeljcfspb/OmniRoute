@@ -110,12 +110,15 @@ const RANGE_OPTIONS: Array<{ value: CostRange; labelKey: string }> = [
   { value: "all", labelKey: "rangeAll" },
 ];
 
-const EXPLORER_GROUP_OPTIONS: Array<{ value: CostExplorerGroupBy; label: string }> = [
-  { value: "provider", label: "Provider" },
-  { value: "model", label: "Model" },
-  { value: "apiKey", label: "API Key" },
-  { value: "account", label: "Account" },
-  { value: "serviceTier", label: "Service Tier" },
+const EXPLORER_GROUP_OPTIONS: Array<{
+  value: CostExplorerGroupBy;
+  labelKey: string;
+}> = [
+  { value: "provider", labelKey: "groupProvider" },
+  { value: "model", labelKey: "groupModel" },
+  { value: "apiKey", labelKey: "groupApiKey" },
+  { value: "account", labelKey: "groupAccount" },
+  { value: "serviceTier", labelKey: "groupServiceTier" },
 ];
 
 const CHART_COLORS = [
@@ -524,7 +527,10 @@ export default function CostOverviewTab() {
         rows={explorerVisibleRows}
         totalRows={explorerRows.length}
         groupBy={explorerGroupBy}
-        groupOptions={EXPLORER_GROUP_OPTIONS}
+        groupOptions={EXPLORER_GROUP_OPTIONS.map((option) => ({
+          value: option.value,
+          label: t(option.labelKey),
+        }))}
         searchQuery={explorerSearch}
         sortKey={explorerSortKey}
         sortDirection={explorerSortDirection}
@@ -873,22 +879,31 @@ function CostExplorerCard({
   onSearchChange: (query: string) => void;
   onSort: (sortKey: CostExplorerSortKey) => void;
 }) {
-  const currencyFormatter = createCurrencyFormatter(locale);
-  const numberFormatter = new Intl.NumberFormat(locale);
-  const compactFormatter = new Intl.NumberFormat(locale, { notation: "compact" });
+  const t = useTranslations("costs");
+  const currencyFormatter = useMemo(() => createCurrencyFormatter(locale), [locale]);
+  const numberFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
+  const compactFormatter = useMemo(
+    () => new Intl.NumberFormat(locale, { notation: "compact" }),
+    [locale]
+  );
 
-  const columns: Array<{
-    key: CostExplorerSortKey;
-    label: string;
-    align: "left" | "right";
-  }> = [
-    { key: "name", label: "Dimension", align: "left" },
-    { key: "cost", label: "Cost", align: "right" },
-    { key: "requests", label: "Requests", align: "right" },
-    { key: "totalTokens", label: "Tokens", align: "right" },
-    { key: "avgCostPerRequest", label: "Avg / Request", align: "right" },
-    { key: "sharePct", label: "Share", align: "right" },
-  ];
+  const columns = useMemo<
+    Array<{
+      key: CostExplorerSortKey;
+      label: string;
+      align: "left" | "right";
+    }>
+  >(
+    () => [
+      { key: "name", label: t("dimension"), align: "left" },
+      { key: "cost", label: t("cost"), align: "right" },
+      { key: "requests", label: t("requests"), align: "right" },
+      { key: "totalTokens", label: t("tokens"), align: "right" },
+      { key: "avgCostPerRequest", label: t("avgCostPerRequest"), align: "right" },
+      { key: "sharePct", label: t("share"), align: "right" },
+    ],
+    [t]
+  );
 
   function renderSortIcon(columnKey: CostExplorerSortKey) {
     if (sortKey !== columnKey) return "unfold_more";
@@ -896,8 +911,18 @@ function CostExplorerCard({
   }
 
   function formatCost(value: number): string {
-    if (!hasCostData && value <= 0) return "Legacy / Free";
+    if (!hasCostData && value <= 0) return t("legacyOrFree");
     return formatCurrencyCost(locale, value);
+  }
+
+  function formatRowCount(): string {
+    const shown = numberFormatter.format(rows.length);
+    const total = numberFormatter.format(totalRows);
+    if (totalRows > rows.length) {
+      return t("showingTopCostRows", { shown, total });
+    }
+
+    return t("showingCostRows", { shown, total });
   }
 
   return (
@@ -908,11 +933,9 @@ function CostExplorerCard({
             <span className="material-symbols-outlined text-emerald-400 text-xl">
               travel_explore
             </span>
-            <h3 className="text-lg font-bold text-text-main">Cost Explorer</h3>
+            <h3 className="text-lg font-bold text-text-main">{t("costExplorerTitle")}</h3>
           </div>
-          <p className="text-sm text-text-muted mt-1">
-            Explore spend by provider, model, API key, account, or service tier.
-          </p>
+          <p className="text-sm text-text-muted mt-1">{t("costExplorerDescription")}</p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <SegmentedControl
@@ -927,9 +950,9 @@ function CostExplorerCard({
             <input
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Filter rows…"
+              placeholder={t("filterRows")}
               className="w-full rounded-lg border border-border/40 bg-surface/40 py-2 pl-9 pr-3 text-sm text-text-main placeholder:text-text-muted focus:border-primary focus:outline-none"
-              aria-label="Filter Cost Explorer rows"
+              aria-label={t("filterCostExplorerRows")}
             />
           </label>
         </div>
@@ -939,8 +962,8 @@ function CostExplorerCard({
         <div className="rounded-xl border border-border/30 bg-surface/20 p-6">
           <EmptyState
             icon="manage_search"
-            title="No matching cost rows"
-            description="Adjust the search text, grouping, or selected time window."
+            title={t("noMatchingCostRows")}
+            description={t("noMatchingCostRowsDescription")}
           />
         </div>
       ) : (
@@ -1017,10 +1040,7 @@ function CostExplorerCard({
               </tbody>
             </table>
           </div>
-          <p className="mt-3 text-xs text-text-muted">
-            Showing {numberFormatter.format(rows.length)} of {numberFormatter.format(totalRows)}
-            {totalRows > rows.length ? " matching rows (top 50)." : " matching rows."}
-          </p>
+          <p className="mt-3 text-xs text-text-muted">{formatRowCount()}</p>
         </>
       )}
     </Card>
