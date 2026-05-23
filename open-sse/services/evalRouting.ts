@@ -141,7 +141,8 @@ function dedupeLatestRunsBySuite(runs: PersistedEvalRun[]): PersistedEvalRun[] {
   const latest = new Map<string, PersistedEvalRun>();
   for (const run of runs) {
     const key = run.suiteId;
-    if (!latest.has(key)) {
+    const current = latest.get(key);
+    if (!current || new Date(run.createdAt).getTime() > new Date(current.createdAt).getTime()) {
       latest.set(key, run);
     }
   }

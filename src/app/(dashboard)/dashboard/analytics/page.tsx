@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { UsageAnalytics, CardSkeleton } from "@/shared/components";
 import { cn } from "@/shared/utils/cn";
 import EvalsTab from "../usage/components/EvalsTab";
@@ -19,14 +20,32 @@ type AnalyticsTab =
   | "combo-health"
   | "route-trace";
 
-const ANALYTICS_TABS: Array<{ id: AnalyticsTab; label: string; icon: string }> = [
-  { id: "overview", label: "Overview", icon: "analytics" },
-  { id: "evals", label: "Evals", icon: "science" },
-  { id: "search", label: "Search", icon: "travel_explore" },
-  { id: "utilization", label: "Utilization", icon: "monitoring" },
-  { id: "combo-health", label: "Combo Health", icon: "health_and_safety" },
-  { id: "route-trace", label: "Route Trace", icon: "alt_route" },
+const ANALYTICS_TABS: Array<{
+  id: AnalyticsTab;
+  labelKey: string;
+  fallback: string;
+  icon: string;
+}> = [
+  { id: "overview", labelKey: "overview", fallback: "Overview", icon: "analytics" },
+  { id: "evals", labelKey: "evals", fallback: "Evals", icon: "science" },
+  { id: "search", labelKey: "search", fallback: "Search", icon: "travel_explore" },
+  { id: "utilization", labelKey: "utilization", fallback: "Utilization", icon: "monitoring" },
+  {
+    id: "combo-health",
+    labelKey: "comboHealth",
+    fallback: "Combo Health",
+    icon: "health_and_safety",
+  },
+  { id: "route-trace", labelKey: "routeTrace", fallback: "Route Trace", icon: "alt_route" },
 ];
+
+type AnalyticsTranslator = ((key: string, values?: Record<string, unknown>) => string) & {
+  has?: (key: string) => boolean;
+};
+
+function analyticsText(t: AnalyticsTranslator, key: string, fallback: string) {
+  return typeof t.has === "function" && t.has(key) ? t(key) : fallback;
+}
 
 function normalizeTab(tab: string | null): AnalyticsTab {
   if (tab === "route-trace" || tab === "route-explain") return "route-trace";
@@ -37,6 +56,7 @@ function normalizeTab(tab: string | null): AnalyticsTab {
 }
 
 function AnalyticsPageContent() {
+  const t = useTranslations("analytics") as AnalyticsTranslator;
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<AnalyticsTab>(normalizeTab(searchParams.get("tab")));
   const [initialRequestId] = useState(searchParams.get("id") || "");
@@ -86,7 +106,7 @@ function AnalyticsPageContent() {
               <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
                 {tab.icon}
               </span>
-              {tab.label}
+              {analyticsText(t, tab.labelKey, tab.fallback)}
             </button>
           );
         })}

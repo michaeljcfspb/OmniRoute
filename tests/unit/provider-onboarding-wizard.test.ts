@@ -10,51 +10,18 @@ test("provider onboarding catalog exposes API-key and OAuth providers for the wi
   const apiKeyOptions = catalog.getWizardApiKeyProviderOptions();
   const oauthOptions = catalog.getWizardOAuthProviderOptions();
 
-  assert.equal(
-    apiKeyOptions.some((option) => option.id === "openai"),
-    true
-  );
-  assert.equal(
-    apiKeyOptions.some((option) => option.id === "openrouter"),
-    true
-  );
-  assert.equal(
-    oauthOptions.some((option) => option.id === "claude"),
-    true
-  );
-  assert.equal(
-    oauthOptions.some((option) => option.id === "kiro"),
-    true
-  );
-  assert.equal(
-    oauthOptions.some((option) => option.id === "cursor"),
-    true
-  );
-  assert.equal(
-    oauthOptions.some((option) => option.id === "zed"),
-    false
-  );
-  assert.equal(
-    oauthOptions.some((option) => option.id === "windsurf"),
-    false
-  );
-  assert.equal(
-    oauthOptions.some((option) => option.id === "devin-cli"),
-    false
-  );
-  assert.equal(
-    oauthOptions.some((option) => option.id === "qoder"),
-    false
-  );
+  assert.ok(apiKeyOptions.some((option) => option.id === "openai"));
+  assert.ok(apiKeyOptions.some((option) => option.id === "openrouter"));
+  assert.ok(oauthOptions.some((option) => option.id === "claude"));
+  assert.ok(oauthOptions.some((option) => option.id === "kiro"));
+  assert.ok(oauthOptions.some((option) => option.id === "cursor"));
+  assert.ok(!oauthOptions.some((option) => option.id === "zed"));
+  assert.ok(!oauthOptions.some((option) => option.id === "windsurf"));
+  assert.ok(!oauthOptions.some((option) => option.id === "devin-cli"));
+  assert.ok(!oauthOptions.some((option) => option.id === "qoder"));
 
-  assert.equal(
-    apiKeyOptions.every((option) => option.authKind === "apikey"),
-    true
-  );
-  assert.equal(
-    oauthOptions.every((option) => option.authKind === "oauth"),
-    true
-  );
+  assert.ok(apiKeyOptions.every((option) => option.authKind === "apikey"));
+  assert.ok(oauthOptions.every((option) => option.authKind === "oauth"));
 });
 
 test("provider onboarding option filter matches id, name, alias, and description", () => {
@@ -187,6 +154,17 @@ test("provider onboarding validation rejects HTTP 200 responses with valid false
       /Invalid API key/
     );
     assert.equal(createCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("provider onboarding API ignores non-object error JSON", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json(null, { status: 500 });
+
+  try {
+    await assert.rejects(() => api.fetchOnboardingProviderNodes(), /Failed to load provider nodes/);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -153,7 +153,7 @@ function inverseNormalized(value: number, maxValue: number): number {
 
 function scoreAtOrBelowThreshold(value: number, threshold: number): number {
   // A zero threshold is an intentional zero-tolerance policy.
-  if (threshold <= 0) return value === 0 ? 1 : clamp01(1 - value);
+  if (threshold <= 0) return value === 0 ? 1 : 0;
   return clamp01(threshold / Math.max(value, 0.000_001));
 }
 

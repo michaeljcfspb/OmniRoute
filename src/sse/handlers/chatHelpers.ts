@@ -49,6 +49,13 @@ const PREFERRED_BY_FAMILY: Record<string, string> = {
 
 const CODEX_NATIVE_RESPONSES_MODELS = new Set(["gpt-5.5"]);
 
+type TrafficType = "production" | "shadow";
+
+type ExecuteChatWithBreakerOptions = {
+  trafficType?: TrafficType;
+  [key: string]: any;
+};
+
 function getHeaderValue(headers: Record<string, unknown> | null | undefined, name: string) {
   if (!headers || typeof headers !== "object") return "";
   const lowerName = name.toLowerCase();
@@ -332,7 +339,7 @@ export async function executeChatWithBreaker({
   cachedSettings,
   skipUpstreamRetry = false,
   trafficType = "production",
-}: any): Promise<{ result: any; tlsFingerprintUsed: boolean }> {
+}: ExecuteChatWithBreakerOptions): Promise<{ result: any; tlsFingerprintUsed: boolean }> {
   let tlsFingerprintUsed = false;
   const isShadowTraffic = trafficType === "shadow";
 

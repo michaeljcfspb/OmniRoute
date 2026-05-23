@@ -1300,7 +1300,8 @@ export async function handleChatCore({
         : {};
     const rawServiceTier = requestRecord.service_tier;
     if (typeof rawServiceTier === "string" && rawServiceTier.trim().length > 0) {
-      return normalizeCodexServiceTier(rawServiceTier) ?? "standard";
+      const normalizedServiceTier = normalizeCodexServiceTier(rawServiceTier);
+      if (normalizedServiceTier) return normalizedServiceTier;
     }
     return getCodexRequestDefaults(credentials?.providerSpecificData).serviceTier ?? "standard";
   };

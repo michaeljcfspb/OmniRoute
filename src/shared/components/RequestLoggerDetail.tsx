@@ -37,10 +37,7 @@ function PayloadSection({ title, json, onCopy }) {
           {copied ? "Copied!" : "Copy"}
         </button>
       </div>
-      <pre
-        className="p-4 rounded-xl bg-black/5 dark:bg-black/30 border border-border overflow-x-auto text-xs font-mono text-text-main max-h-150 overflow-y-auto leading-relaxed whitespace-pre-wrap"
-        style={{ overflowWrap: "break-word" }}
-      >
+      <pre className="p-4 rounded-xl bg-black/5 dark:bg-black/30 border border-border overflow-x-auto text-xs font-mono text-text-main max-h-150 overflow-y-auto leading-relaxed whitespace-pre-wrap break-words">
         {json}
       </pre>
     </div>

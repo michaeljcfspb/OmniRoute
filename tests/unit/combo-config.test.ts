@@ -61,6 +61,33 @@ test("resolveComboConfig applies the full cascade from defaults to combo overrid
   assert.ok(!("healthCheckEnabled" in result));
 });
 
+test("resolveComboConfig preserves nested routing defaults for partial overrides", () => {
+  const result = resolveComboConfig(
+    {
+      config: {
+        shadowRouting: { enabled: true },
+        evalRouting: { enabled: true, suiteIds: ["coding-proficiency"] },
+      },
+    },
+    {
+      comboDefaults: {
+        shadowRouting: { sampleRate: 0.5 },
+        evalRouting: { maxAgeHours: 168 },
+      },
+    }
+  );
+
+  assert.equal(result.shadowRouting.enabled, true);
+  assert.equal(result.shadowRouting.sampleRate, 0.5);
+  assert.equal(result.shadowRouting.maxTargets, 2);
+  assert.equal(result.shadowRouting.timeoutMs, 30000);
+  assert.equal(result.evalRouting.enabled, true);
+  assert.deepEqual(result.evalRouting.suiteIds, ["coding-proficiency"]);
+  assert.equal(result.evalRouting.maxAgeHours, 168);
+  assert.equal(result.evalRouting.minCases, 1);
+  assert.equal(result.evalRouting.cacheTtlMs, 60000);
+});
+
 test("resolveComboConfig ignores null, undefined, and legacy resilience overrides", () => {
   const result = resolveComboConfig(
     {

@@ -69,6 +69,10 @@ type ComboSettingsLike =
   | null
   | undefined;
 
+function isRecord(value: unknown): value is ComboConfigRecord {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 /**
  * Resolve effective config for a combo, applying cascade:
  *   DEFAULT_COMBO_CONFIG → settings.comboDefaults → settings.providerOverrides[provider] → combo.config
@@ -96,11 +100,27 @@ export function resolveComboConfig(
       )
     );
 
-  return {
+  const merged = {
     ...DEFAULT_COMBO_CONFIG,
     ...clean(global),
     ...clean(providerOverride),
     ...clean(comboConfig),
+  };
+
+  return {
+    ...merged,
+    shadowRouting: {
+      ...DEFAULT_COMBO_CONFIG.shadowRouting,
+      ...(isRecord(global.shadowRouting) ? clean(global.shadowRouting) : {}),
+      ...(isRecord(providerOverride.shadowRouting) ? clean(providerOverride.shadowRouting) : {}),
+      ...(isRecord(comboConfig.shadowRouting) ? clean(comboConfig.shadowRouting) : {}),
+    },
+    evalRouting: {
+      ...DEFAULT_COMBO_CONFIG.evalRouting,
+      ...(isRecord(global.evalRouting) ? clean(global.evalRouting) : {}),
+      ...(isRecord(providerOverride.evalRouting) ? clean(providerOverride.evalRouting) : {}),
+      ...(isRecord(comboConfig.evalRouting) ? clean(comboConfig.evalRouting) : {}),
+    },
   };
 }
 

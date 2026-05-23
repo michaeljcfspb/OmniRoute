@@ -1,3 +1,5 @@
+import pino from "pino";
+
 import { isModelExcludedByConnection } from "@/domain/connectionModelRules";
 import { getProviderConnections } from "@/lib/db/providers";
 import { getCircuitBreaker } from "@/shared/utils/circuitBreaker";
@@ -12,6 +14,8 @@ import type {
 } from "@/shared/types/utilization";
 
 type JsonRecord = Record<string, unknown>;
+
+const logger = pino({ name: "resilience-explain" });
 
 export type ProviderConnectionView = JsonRecord & {
   id?: string | null;
@@ -146,6 +150,10 @@ function buildProviderExplanation(provider: string): {
 
     return { provider: explanation, skipReason: null };
   } catch (error) {
+    logger.warn(
+      { err: error, provider },
+      "Provider circuit breaker state could not be inspected for resilience explanation"
+    );
     return {
       provider: {
         provider,
@@ -251,7 +259,18 @@ function accountReason(
   if (status === "unavailable") {
     return {
       state: "degraded",
-      reason: null,
+      reason: {
+        scope: "connection",
+        code: "connection_unavailable",
+        connectionId,
+        message: `Connection ${connectionId} is marked unavailable and may be degraded for this target.`,
+        evidence: {
+          testStatus: status,
+          lastErrorType: connection.lastErrorType ?? null,
+          errorCode: connection.errorCode ?? null,
+          backoffLevel: connection.backoffLevel ?? null,
+        },
+      },
     };
   }
 
@@ -397,6 +416,7 @@ export async function inspectTargetResilience(
       });
       if (reason) skipReasons.push(reason);
       accountExplanations.push(buildAccountExplanation(connection, state, reason));
+      if (reason?.code === "connection_not_allowed") continue;
       const modelExplanation = buildModelExplanation(options.provider, options.model, connectionId);
       if (modelExplanation) modelExplanations.push(modelExplanation);
     }
@@ -423,6 +443,10 @@ export async function inspectTargetResilience(
       summary: summarize(explanation),
     };
   } catch (error) {
+    logger.warn(
+      { err: error, provider: options.provider, model: options.model },
+      "Provider connections could not be inspected for resilience explanation"
+    );
     skipReasons.push({
       scope: "connection",
       code: "inspector_error",

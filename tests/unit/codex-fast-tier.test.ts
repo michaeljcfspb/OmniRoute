@@ -119,3 +119,31 @@ test("Codex global flex writes body service_tier when available", () => {
     providerSpecificData: { requestDefaults: { serviceTier: "flex" } },
   });
 });
+
+test("Codex global service tier only short-circuits on valid body service_tier", () => {
+  const invalidBody: Record<string, unknown> = { service_tier: "invalid" };
+  const injected = applyCodexGlobalFastServiceTier(
+    "codex",
+    { providerSpecificData: {} },
+    { codexServiceTier: { enabled: true, tier: "priority" } },
+    { model: "gpt-5.5", body: invalidBody }
+  );
+
+  assert.deepEqual(injected, {
+    providerSpecificData: { requestDefaults: { serviceTier: "priority" } },
+  });
+  assert.equal(invalidBody.service_tier, "invalid");
+
+  const validBody: Record<string, unknown> = { service_tier: " Flex " };
+  const unchanged = { providerSpecificData: {} };
+  assert.equal(
+    applyCodexGlobalFastServiceTier(
+      "codex",
+      unchanged,
+      { codexServiceTier: { enabled: true, tier: "priority" } },
+      { model: "gpt-5.5", body: validBody }
+    ),
+    unchanged
+  );
+  assert.equal(validBody.service_tier, "flex");
+});

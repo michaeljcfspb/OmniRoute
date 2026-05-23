@@ -293,13 +293,19 @@ async function buildInspectorCombo(
     .sort((left, right) => right.score - left.score);
 
   const connectionsByProvider = new Map<string, ProviderConnectionView[]>();
-  await Promise.all(
+  await Promise.allSettled(
     [...new Set(scored.map((item) => item.entry.context.target.provider).filter(Boolean))].map(
       async (provider) => {
-        connectionsByProvider.set(
-          provider,
-          (await getProviderConnections({ provider, isActive: true })) as ProviderConnectionView[]
-        );
+        try {
+          connectionsByProvider.set(
+            provider,
+            (await getProviderConnections({ provider, isActive: true })) as ProviderConnectionView[]
+          );
+        } catch {
+          warnings.push(
+            `Provider connection prefetch failed for ${provider}; resilience details will use fallback inspection.`
+          );
+        }
       }
     )
   );

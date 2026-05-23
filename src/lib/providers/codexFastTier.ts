@@ -1,4 +1,8 @@
-import { getCodexRequestDefaults, type CodexServiceTier } from "./requestDefaults";
+import {
+  getCodexRequestDefaults,
+  normalizeCodexServiceTier,
+  type CodexServiceTier,
+} from "./requestDefaults";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -160,8 +164,12 @@ export function applyCodexGlobalFastServiceTier<T extends JsonRecord | null | un
 
   const body = options.body;
   const rawBodyTier = body && typeof body === "object" ? (body as JsonRecord).service_tier : null;
-  const hasRequestBodyTier = typeof rawBodyTier === "string" && rawBodyTier.trim().length > 0;
-  if (hasRequestBodyTier) {
+  const normalizedBodyTier =
+    typeof rawBodyTier === "string" ? normalizeCodexServiceTier(rawBodyTier) : null;
+  if (normalizedBodyTier) {
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      (body as JsonRecord).service_tier = normalizedBodyTier;
+    }
     return credentials;
   }
 

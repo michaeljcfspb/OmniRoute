@@ -211,3 +211,21 @@ test("provider health matrix route requires management auth", async () => {
   const body = await authenticated.json();
   assert.equal(body.summary.connectionCount, 1);
 });
+
+test("provider health matrix route rejects invalid query parameters", async () => {
+  await enableManagementAuth();
+
+  const invalidRange = await route.GET(
+    await makeManagementSessionRequest(
+      "http://localhost/api/providers/health-matrix?range=forever&includeHealthy=true"
+    )
+  );
+  assert.equal(invalidRange.status, 400);
+
+  const invalidBoolean = await route.GET(
+    await makeManagementSessionRequest(
+      "http://localhost/api/providers/health-matrix?range=24h&includeHealthy=yes"
+    )
+  );
+  assert.equal(invalidBoolean.status, 400);
+});

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import Badge from "@/shared/components/Badge";
 import Card from "@/shared/components/Card";
 import { Skeleton } from "@/shared/components/Loading";
@@ -16,6 +17,14 @@ type CallLogOption = {
   comboName: string | null;
   duration: number;
 };
+
+type AnalyticsTranslator = ((key: string, values?: Record<string, unknown>) => string) & {
+  has?: (key: string) => boolean;
+};
+
+function analyticsText(t: AnalyticsTranslator, key: string, fallback: string) {
+  return typeof t.has === "function" && t.has(key) ? t(key) : fallback;
+}
 
 type ExplanationFactor = {
   name: string;
@@ -437,6 +446,7 @@ export default function RouteExplainabilityTab({
 }: {
   initialRequestId?: string;
 }) {
+  const t = useTranslations("analytics") as AnalyticsTranslator;
   const [logs, setLogs] = useState<CallLogOption[]>([]);
   const [selectedId, setSelectedId] = useState(initialRequestId);
   const [explanation, setExplanation] = useState<RouteExplainabilityResponse | null>(null);
@@ -455,7 +465,13 @@ export default function RouteExplainabilityTab({
         if (!response.ok) throw new Error("Failed to fetch request logs");
         const data = (await response.json()) as CallLogOption[];
         setLogs(data);
-        setSelectedId((current) => current || initialRequestId || data[0]?.id || "");
+        setSelectedId((current) => {
+          const preferredId = current || initialRequestId;
+          if (preferredId && data.some((log) => log.id === preferredId)) {
+            return preferredId;
+          }
+          return data[0]?.id || "";
+        });
         setError(null);
       } catch (fetchError) {
         if ((fetchError as Error).name === "AbortError") return;
@@ -524,15 +540,20 @@ export default function RouteExplainabilityTab({
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4 rounded-xl border border-black/5 bg-surface p-5 shadow-sm dark:border-white/5 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-text-main">Route Trace View</h2>
+          <h2 className="text-lg font-semibold text-text-main">
+            {analyticsText(t, "routeTraceTitle", "Route Trace View")}
+          </h2>
           <p className="mt-1 max-w-3xl text-sm text-text-muted">
-            Inspect the persisted request trace: selected target, routing factors, fallback
-            evidence, current scoring replay, latency, tokens and target health.
+            {analyticsText(
+              t,
+              "routeTraceDescription",
+              "Inspect the persisted request trace: selected target, routing factors, fallback evidence, current scoring replay, latency, tokens and target health."
+            )}
           </p>
         </div>
         <div className="flex min-w-0 flex-col gap-2 sm:min-w-90">
           <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-            Request log
+            {analyticsText(t, "routeTraceRequestLog", "Request log")}
           </label>
           <select
             value={selectedId}

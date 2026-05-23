@@ -312,15 +312,22 @@ export default function ProvidersPage() {
     if (hasExpired) expiryStatus = "expired";
     else if (hasExpiringSoon) expiryStatus = "expiring_soon";
 
+    const codexConnectionServiceTiers = [
+      ...new Set(
+        providerConnections
+          .map((connection) =>
+            getCodexEffectiveServiceTier(connection.providerSpecificData, "none")
+          )
+          .filter((tier) => tier !== "default")
+      ),
+    ];
     const codexServiceTier =
       providerId === "codex"
         ? codexGlobalServiceMode !== "none"
           ? codexGlobalServiceMode
-          : providerConnections
-              .map((connection) =>
-                getCodexEffectiveServiceTier(connection.providerSpecificData, "none")
-              )
-              .find((tier) => tier !== "default") || null
+          : codexConnectionServiceTiers.length === 1
+            ? codexConnectionServiceTiers[0]
+            : null
         : null;
 
     // Count API keys in "warning" state across all connections

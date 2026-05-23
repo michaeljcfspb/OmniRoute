@@ -493,6 +493,14 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
+function cloneRequestBodyForShadowRouting(body: Record<string, unknown>): Record<string, unknown> {
+  if (typeof structuredClone === "function") {
+    return structuredClone(body) as Record<string, unknown>;
+  }
+
+  return JSON.parse(JSON.stringify(body)) as Record<string, unknown>;
+}
+
 function scheduleShadowRouting(
   combo: ComboLike,
   config: Record<string, unknown>,
@@ -510,7 +518,7 @@ function scheduleShadowRouting(
       targets.map(async (target) => {
         const startedAt = Date.now();
         const shadowBody = {
-          ...body,
+          ...cloneRequestBodyForShadowRouting(body),
           model: target.modelStr,
           stream: false,
         };
@@ -2945,10 +2953,11 @@ export async function handleComboChat({
     return comboModelNotFoundResponse("Combo has no executable targets");
   }
 
+  const shadowRoutingBody = cloneRequestBodyForShadowRouting(body);
   scheduleShadowRouting(
     combo,
     config,
-    body,
+    shadowRoutingBody,
     resolveShadowTargets(combo, config, allCombos),
     handleSingleModelWrapped,
     isModelAvailable,

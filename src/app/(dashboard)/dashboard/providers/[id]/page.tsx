@@ -871,16 +871,20 @@ const CODEX_REASONING_STRENGTH_OPTIONS = [
   { value: "xhigh", label: "XHigh" },
 ];
 
-const CODEX_ACCOUNT_SERVICE_TIER_OPTIONS: Array<{ value: CodexServiceTier; label: string }> = [
-  { value: "default", label: "Default" },
-  { value: "priority", label: "Priority" },
-  { value: "flex", label: "Flex" },
+const CODEX_ACCOUNT_SERVICE_TIER_VALUES: CodexServiceTier[] = ["default", "priority", "flex"];
+const CODEX_GLOBAL_SERVICE_MODE_VALUES: CodexGlobalServiceMode[] = [
+  "none",
+  ...CODEX_ACCOUNT_SERVICE_TIER_VALUES,
 ];
 
-const CODEX_GLOBAL_SERVICE_MODE_OPTIONS: Array<{ value: CodexGlobalServiceMode; label: string }> = [
-  { value: "none", label: "No global setting" },
-  ...CODEX_ACCOUNT_SERVICE_TIER_OPTIONS,
-];
+function getCodexServiceTierLabel(t: ProviderMessageTranslator, value: CodexGlobalServiceMode) {
+  if (value === "none") {
+    return providerText(t, "codexServiceModeNone", "No global setting");
+  }
+  if (value === "default") return providerText(t, "codexServiceTierDefault", "Default");
+  if (value === "priority") return providerText(t, "codexServiceTierPriority", "Priority");
+  return providerText(t, "codexServiceTierFlex", "Flex");
+}
 
 function normalizeCodexLimitPolicy(policy: unknown): { use5h: boolean; useWeekly: boolean } {
   const record =
@@ -1326,6 +1330,7 @@ export default function ProviderDetailPage() {
   const [codexGlobalSupportedModels, setCodexGlobalSupportedModels] = useState<string[]>([
     ...CODEX_FAST_TIER_DEFAULT_SUPPORTED_MODELS,
   ]);
+  const [codexSettingsLoaded, setCodexSettingsLoaded] = useState(false);
   const [savingCodexGlobalServiceMode, setSavingCodexGlobalServiceMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
@@ -1343,6 +1348,15 @@ export default function ProviderDetailPage() {
     _setShowOAuthModal(show);
     setReauthConnection(show && connectionRow ? connectionRow : null);
   };
+
+  const codexGlobalServiceModeOptions = useMemo(
+    () =>
+      CODEX_GLOBAL_SERVICE_MODE_VALUES.map((value) => ({
+        value,
+        label: getCodexServiceTierLabel(t, value),
+      })),
+    [t]
+  );
 
   const providerInfo = resolveDashboardProviderInfo(providerId, {
     providerNode,
@@ -1616,14 +1630,17 @@ export default function ProviderDetailPage() {
 
   useEffect(() => {
     if (providerId !== "codex") return;
+    setCodexSettingsLoaded(false);
     fetch("/api/settings", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
+        if (!data) return;
         const resolvedCodexServiceTier = resolveCodexGlobalFastServiceTier(data);
         setCodexGlobalServiceMode(getCodexGlobalServiceMode(data));
         setCodexGlobalSupportedModels([...resolvedCodexServiceTier.supportedModels]);
+        setCodexSettingsLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => setCodexSettingsLoaded(false));
   }, [providerId]);
 
   const loadConnProxies = useCallback(async (conns: { id?: string }[]) => {
@@ -2371,7 +2388,7 @@ export default function ProviderDetailPage() {
   };
 
   const handleChangeCodexGlobalServiceMode = async (mode: CodexGlobalServiceMode) => {
-    if (savingCodexGlobalServiceMode) return;
+    if (savingCodexGlobalServiceMode || !codexSettingsLoaded) return;
     setSavingCodexGlobalServiceMode(true);
     const previousMode = codexGlobalServiceMode;
     setCodexGlobalServiceMode(mode);
@@ -3798,11 +3815,11 @@ export default function ProviderDetailPage() {
                         event.target.value as CodexGlobalServiceMode
                       )
                     }
-                    disabled={savingCodexGlobalServiceMode}
+                    disabled={savingCodexGlobalServiceMode || !codexSettingsLoaded}
                     aria-label="Global Codex service mode"
                     className="rounded-md border border-border bg-bg px-2 py-1 text-xs text-text-main outline-none transition-colors focus:border-primary disabled:opacity-60"
                   >
-                    {CODEX_GLOBAL_SERVICE_MODE_OPTIONS.map((option) => (
+                    {codexGlobalServiceModeOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -9471,6 +9488,14 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
       : apiKeyOptional
         ? t("apiKeyOptionalHint")
         : t("leaveBlankKeepCurrentApiKey");
+  const codexAccountServiceTierOptions = useMemo(
+    () =>
+      CODEX_ACCOUNT_SERVICE_TIER_VALUES.map((value) => ({
+        value,
+        label: getCodexServiceTierLabel(t, value),
+      })),
+    [t]
+  );
 
   useEffect(() => {
     if (isOpen && connection) {
@@ -9857,7 +9882,7 @@ function EditConnectionModal({ isOpen, connection, onSave, onClose }: EditConnec
             <Select
               label={providerText(t, "codexServiceTierLabel", "Codex service tier")}
               value={formData.codexServiceTier}
-              options={CODEX_ACCOUNT_SERVICE_TIER_OPTIONS}
+              options={codexAccountServiceTierOptions}
               onChange={(event) =>
                 setFormData({
                   ...formData,

@@ -342,6 +342,54 @@ test("handleComboChat runs shadow targets without changing the primary response 
   assert.equal(metrics.shadow.byModel["anthropic/claude-3-haiku"].requests, 1);
 });
 
+test("handleComboChat isolates nested shadow request bodies", async () => {
+  type MutableChatBody = { messages: Array<{ role: string; content: string }>; stream: boolean };
+
+  const shadowMessages: string[] = [];
+  const body = { messages: [{ role: "user", content: "original" }], stream: true };
+  const combo = {
+    name: "shadow-routing-isolation",
+    models: ["openai/gpt-4o-mini"],
+    config: {
+      shadowRouting: {
+        enabled: true,
+        targets: ["anthropic/claude-3-haiku"],
+        sampleRate: 1,
+      },
+    },
+  };
+
+  const result = await handleComboChat({
+    body,
+    combo,
+    handleSingleModel: async (
+      requestBody: MutableChatBody,
+      _modelStr: unknown,
+      target?: unknown
+    ) => {
+      const trafficType =
+        target && typeof target === "object" && "trafficType" in target
+          ? (target as { trafficType?: unknown }).trafficType
+          : null;
+      if (trafficType === "shadow") {
+        shadowMessages.push(requestBody.messages[0].content);
+        return okResponse();
+      }
+      requestBody.messages[0].content = "mutated by production";
+      return okResponse();
+    },
+    isModelAvailable: async () => true,
+    log: createLog(),
+    settings: null,
+    allCombos: null,
+  });
+
+  await waitForBackgroundWork();
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(shadowMessages, ["original"]);
+});
+
 test("handleComboChat honors shadow sampleRate zero", async () => {
   const calls: any[] = [];
   const combo = {

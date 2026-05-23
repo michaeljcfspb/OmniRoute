@@ -85,7 +85,11 @@ const providerNodesResponseSchema = z
 
 async function parseJson(response: Response): Promise<Record<string, unknown>> {
   try {
-    return (await response.json()) as Record<string, unknown>;
+    const parsed: unknown = await response.json();
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return {};
   } catch {
     return {};
   }
