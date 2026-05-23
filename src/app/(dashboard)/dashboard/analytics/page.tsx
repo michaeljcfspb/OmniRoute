@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { UsageAnalytics, CardSkeleton } from "@/shared/components";
 import { cn } from "@/shared/utils/cn";
 import EvalsTab from "../usage/components/EvalsTab";
@@ -36,15 +36,17 @@ function normalizeTab(tab: string | null): AnalyticsTab {
   return "overview";
 }
 
-export default function AnalyticsPage() {
-  const [activeTab, setActiveTab] = useState<AnalyticsTab>(() => {
-    if (typeof window === "undefined") return "overview";
-    return normalizeTab(new URLSearchParams(window.location.search).get("tab"));
-  });
-  const [initialRequestId] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return new URLSearchParams(window.location.search).get("id") || "";
-  });
+function AnalyticsPageContent() {
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>(normalizeTab(searchParams.get("tab")));
+  const [initialRequestId] = useState(searchParams.get("id") || "");
+
+  useEffect(() => {
+    if (searchParams.get("tab") !== "route-explain") return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "route-trace");
+    window.history.replaceState(null, "", url.toString());
+  }, [searchParams]);
 
   const handleTabChange = (tab: AnalyticsTab) => {
     setActiveTab(tab);
@@ -106,5 +108,13 @@ export default function AnalyticsPage() {
         ) : null}
       </Suspense>
     </div>
+  );
+}
+
+export default function AnalyticsPage() {
+  return (
+    <Suspense fallback={<CardSkeleton />}>
+      <AnalyticsPageContent />
+    </Suspense>
   );
 }

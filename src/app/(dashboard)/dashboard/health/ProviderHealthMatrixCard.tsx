@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 
 import Badge from "@/shared/components/Badge";
 import { Card } from "@/shared/components";
@@ -161,8 +162,12 @@ function ModelPill({ model }: { model: HealthMatrixModel }) {
 }
 
 function AccountRow({ account }: { account: HealthMatrixAccount }) {
+  const t = useTranslations("health");
   const visibleModels = account.models.slice(0, 8);
   const hiddenCount = Math.max(0, account.models.length - visibleModels.length);
+  const additionalModelsLabel = t.has("additionalModels")
+    ? t("additionalModels", { count: hiddenCount })
+    : `+${hiddenCount} more models`;
 
   return (
     <div className="rounded-xl border border-border bg-bg p-4">
@@ -206,7 +211,7 @@ function AccountRow({ account }: { account: HealthMatrixAccount }) {
           ))}
           {hiddenCount > 0 ? (
             <div className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-text-muted">
-              +{hiddenCount} weitere Modelle
+              {additionalModelsLabel}
             </div>
           ) : null}
         </div>
@@ -255,7 +260,7 @@ export default function ProviderHealthMatrixCard() {
     return () => clearInterval(id);
   }, [fetchMatrix]);
 
-  const providers = data?.providers ?? [];
+  const providers = useMemo(() => data?.providers ?? [], [data?.providers]);
   const providerOptions = useMemo(() => providers.map((entry) => entry.provider), [providers]);
 
   return (

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect } from "react";
 import {
   PROVIDER_COLORS,
@@ -36,7 +37,10 @@ function PayloadSection({ title, json, onCopy }) {
           {copied ? "Copied!" : "Copy"}
         </button>
       </div>
-      <pre className="p-4 rounded-xl bg-black/5 dark:bg-black/30 border border-border overflow-x-auto text-xs font-mono text-text-main max-h-150 overflow-y-auto leading-relaxed whitespace-pre-wrap wrap-break-word">
+      <pre
+        className="p-4 rounded-xl bg-black/5 dark:bg-black/30 border border-border overflow-x-auto text-xs font-mono text-text-main max-h-150 overflow-y-auto leading-relaxed whitespace-pre-wrap"
+        style={{ overflowWrap: "break-word" }}
+      >
         {json}
       </pre>
     </div>
@@ -213,13 +217,13 @@ export default function RequestLoggerDetail({
             <span className="text-text-muted font-mono text-sm self-center ml-2">{log.path}</span>
           </div>
           <div className="flex items-center gap-2">
-            <a
+            <Link
               href={`/dashboard/analytics?tab=route-trace&id=${encodeURIComponent(log.id)}`}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
             >
               <span className="material-symbols-outlined text-[16px]">alt_route</span>
               Route Trace
-            </a>
+            </Link>
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"

@@ -74,9 +74,10 @@ test("provider health matrix combines connections, synced models, logs and locko
     { id: "matrix-model", name: "Matrix Model" },
     { id: "matrix-locked-model", name: "Matrix Locked Model" },
   ]);
+  const startedAt = Date.now();
   await callLogs.saveCallLog({
     id: "matrix-log-ok",
-    timestamp: new Date().toISOString(),
+    timestamp: new Date(startedAt).toISOString(),
     status: 200,
     provider: PROVIDER,
     connectionId,
@@ -85,7 +86,7 @@ test("provider health matrix combines connections, synced models, logs and locko
   });
   await callLogs.saveCallLog({
     id: "matrix-log-error",
-    timestamp: new Date().toISOString(),
+    timestamp: new Date(startedAt + 1_000).toISOString(),
     status: 503,
     provider: PROVIDER,
     connectionId,
@@ -136,6 +137,54 @@ test("provider health matrix combines connections, synced models, logs and locko
   assert.ok(locked);
   assert.equal(locked.status, "locked");
   assert.equal(locked.lockoutReason, "quota_exhausted");
+});
+
+test("provider health matrix treats recovered models as degraded instead of error", async () => {
+  const connection = (await providersDb.createProviderConnection({
+    id: "matrix-recovered-connection",
+    provider: PROVIDER,
+    authType: "apikey",
+    name: "matrix-key",
+    apiKey: "test-key",
+    isActive: true,
+  })) as Record<string, unknown>;
+  const connectionId = String(connection.id);
+  const startedAt = Date.now();
+
+  await callLogs.saveCallLog({
+    id: "matrix-recovered-error",
+    timestamp: new Date(startedAt).toISOString(),
+    status: 503,
+    provider: PROVIDER,
+    connectionId,
+    model: "matrix-recovered-model",
+    duration: 240,
+    error: "upstream unavailable",
+  });
+  await callLogs.saveCallLog({
+    id: "matrix-recovered-ok",
+    timestamp: new Date(startedAt + 1_000).toISOString(),
+    status: 200,
+    provider: PROVIDER,
+    connectionId,
+    model: "matrix-recovered-model",
+    duration: 120,
+  });
+
+  const report = await matrix.buildProviderHealthMatrix({
+    provider: PROVIDER,
+    range: "24h",
+    includeHealthy: true,
+  });
+  const model = report.providers[0]?.accounts[0]?.models.find(
+    (candidate) => candidate.model === "matrix-recovered-model"
+  );
+
+  assert.ok(model);
+  assert.equal(model.lastStatus, 200);
+  assert.equal(model.lastErrorStatus, 503);
+  assert.equal(model.successRate, 50);
+  assert.equal(model.status, "degraded");
 });
 
 test("provider health matrix route requires management auth", async () => {

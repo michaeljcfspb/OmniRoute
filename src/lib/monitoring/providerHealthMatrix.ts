@@ -1,4 +1,4 @@
-import { getSyncedAvailableModelsForConnection } from "@/lib/db/models";
+import { getSyncedAvailableModelsByConnection } from "@/lib/db/models";
 import { getProviderConnections } from "@/lib/db/providers";
 import { getDbInstance } from "@/lib/db/core";
 import { getAllCircuitBreakerStatuses } from "@/shared/utils/circuitBreaker";
@@ -114,10 +114,6 @@ const RANGE_MS: Record<ProviderHealthMatrixRange, number> = {
 
 const TERMINAL_STATUSES = new Set(["banned", "expired", "credits_exhausted"]);
 
-function toRecord(value: unknown): JsonRecord {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
-}
-
 function toString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -204,52 +200,70 @@ function queryCallLogTargetStats(
   const params = providerFilter ? { cutoff, provider: providerFilter } : { cutoff };
   const rows = db
     .prepare(
-      `SELECT
-        c.provider,
-        COALESCE(c.connection_id, '') as connectionId,
-        COALESCE(c.model, c.requested_model, 'unknown') as model,
+      `WITH log_targets AS (
+        SELECT
+          c.provider,
+          COALESCE(c.connection_id, '') as connectionId,
+          COALESCE(c.model, c.requested_model, 'unknown') as model,
+          c.status,
+          c.duration,
+          c.timestamp,
+          c.id,
+          c.error_summary
+        FROM call_logs c
+        WHERE c.provider IS NOT NULL
+          AND c.provider != '-'
+          AND c.timestamp >= @cutoff
+          ${providerClause}
+      ), ranked AS (
+        SELECT
+          provider,
+          connectionId,
+          model,
+          status,
+          duration,
+          timestamp,
+          CASE
+            WHEN (status IS NOT NULL AND (status < 200 OR status >= 400))
+              OR error_summary IS NOT NULL
+            THEN 1
+            ELSE 0
+          END as isError,
+          ROW_NUMBER() OVER (
+            PARTITION BY provider, connectionId, model
+            ORDER BY timestamp DESC, id DESC
+          ) as latestRank,
+          ROW_NUMBER() OVER (
+            PARTITION BY provider, connectionId, model,
+              CASE
+                WHEN (status IS NOT NULL AND (status < 200 OR status >= 400))
+                  OR error_summary IS NOT NULL
+                THEN 1
+                ELSE 0
+              END
+            ORDER BY timestamp DESC, id DESC
+          ) as errorRank
+        FROM log_targets
+      )
+      SELECT
+        provider,
+        connectionId,
+        model,
         COUNT(*) as requests,
-        SUM(CASE WHEN c.status >= 200 AND c.status < 400 THEN 1 ELSE 0 END) as successes,
-        ROUND(AVG(c.duration)) as avgLatencyMs,
-        MAX(c.timestamp) as lastRequestAt,
+        SUM(CASE WHEN status >= 200 AND status < 400 THEN 1 ELSE 0 END) as successes,
+        ROUND(AVG(duration)) as avgLatencyMs,
+        MAX(timestamp) as lastRequestAt,
         MAX(
           CASE
-            WHEN (c.status IS NOT NULL AND (c.status < 200 OR c.status >= 400))
-              OR c.error_summary IS NOT NULL
-            THEN c.timestamp
+            WHEN isError = 1
+            THEN timestamp
             ELSE NULL
           END
         ) as lastErrorAt,
-        (
-          SELECT c2.status
-          FROM call_logs c2
-          WHERE c2.provider = c.provider
-            AND COALESCE(c2.connection_id, '') = COALESCE(c.connection_id, '')
-            AND COALESCE(c2.model, c2.requested_model, 'unknown') = COALESCE(c.model, c.requested_model, 'unknown')
-            AND c2.timestamp >= @cutoff
-          ORDER BY c2.timestamp DESC, c2.id DESC
-          LIMIT 1
-        ) as lastStatus,
-        (
-          SELECT c3.status
-          FROM call_logs c3
-          WHERE c3.provider = c.provider
-            AND COALESCE(c3.connection_id, '') = COALESCE(c.connection_id, '')
-            AND COALESCE(c3.model, c3.requested_model, 'unknown') = COALESCE(c.model, c.requested_model, 'unknown')
-            AND c3.timestamp >= @cutoff
-            AND (
-              (c3.status IS NOT NULL AND (c3.status < 200 OR c3.status >= 400))
-              OR c3.error_summary IS NOT NULL
-            )
-          ORDER BY c3.timestamp DESC, c3.id DESC
-          LIMIT 1
-        ) as lastErrorStatus
-      FROM call_logs c
-      WHERE c.provider IS NOT NULL
-        AND c.provider != '-'
-        AND c.timestamp >= @cutoff
-        ${providerClause}
-      GROUP BY c.provider, COALESCE(c.connection_id, ''), COALESCE(c.model, c.requested_model, 'unknown')`
+        MAX(CASE WHEN latestRank = 1 THEN status ELSE NULL END) as lastStatus,
+        MAX(CASE WHEN isError = 1 AND errorRank = 1 THEN status ELSE NULL END) as lastErrorStatus
+      FROM ranked
+      GROUP BY provider, connectionId, model`
     )
     .all(params) as JsonRecord[];
 
@@ -276,7 +290,7 @@ function classifyModel(
 ): ProviderModelHealthStatus {
   if (locked) return "locked";
   if (!stats || stats.requests === 0) return "idle";
-  if (hasFailureStatus(stats.lastStatus) || hasFailureStatus(stats.lastErrorStatus)) return "error";
+  if (hasFailureStatus(stats.lastStatus)) return "error";
   const successRate = computeSuccessRate(stats.requests, stats.successes);
   if (successRate !== null && successRate < 95) return "degraded";
   return "healthy";
@@ -355,6 +369,16 @@ export async function buildProviderHealthMatrix(
   for (const row of stats) providerIds.add(row.provider);
   if (providerFilter) providerIds.add(providerFilter);
 
+  const syncedModelsByProvider = new Map<
+    string,
+    Awaited<ReturnType<typeof getSyncedAvailableModelsByConnection>>
+  >();
+  await Promise.all(
+    [...providerIds].map(async (provider) => {
+      syncedModelsByProvider.set(provider, await getSyncedAvailableModelsByConnection(provider));
+    })
+  );
+
   const statsByTarget = new Map<string, CallLogTargetStats>();
   const statsByAccount = new Map<string, CallLogTargetStats[]>();
   for (const row of stats) {
@@ -379,10 +403,10 @@ export async function buildProviderHealthMatrix(
   const providers: ProviderHealthMatrixProvider[] = [];
   for (const provider of [...providerIds].sort()) {
     const providerConnections = connectionRows.filter(
-      (connection) => connection.provider === provider
+      (connection) => toString(connection.provider) === provider
     );
     const providerStats = stats.filter((row) => row.provider === provider);
-    const providerBreaker = breakerRows.find((breaker) => breaker.name === provider);
+    const providerBreaker = breakerRows.find((breaker) => toString(breaker.name) === provider);
     const circuitBreaker = providerBreaker
       ? {
           state: toString(providerBreaker.state) || "CLOSED",
@@ -404,18 +428,19 @@ export async function buildProviderHealthMatrix(
       if (!accountRows.has(key)) accountRows.set(key, null);
     }
     for (const lockout of lockoutRows) {
-      if (lockout.provider !== provider) continue;
+      if (toString(lockout.provider) !== provider) continue;
       const key = accountKey(provider, toString(lockout.connectionId));
       if (!accountRows.has(key)) accountRows.set(key, null);
     }
 
     const accounts: ProviderHealthMatrixAccount[] = [];
+    const providerSyncedModels = syncedModelsByProvider.get(provider) ?? {};
     for (const [key, connection] of [...accountRows.entries()].sort()) {
       const [, connectionPart] = key.split("\u0000");
       const connectionId = connection ? toString(connection.id) : connectionPart || null;
       const modelIds = new Set<string>();
       if (connectionId && connection) {
-        const syncedModels = await getSyncedAvailableModelsForConnection(provider, connectionId);
+        const syncedModels = providerSyncedModels[connectionId] ?? [];
         for (const model of syncedModels) {
           if (model.id) modelIds.add(model.id);
         }
@@ -426,7 +451,7 @@ export async function buildProviderHealthMatrix(
         modelIds.add(stat.model);
       }
       for (const lockout of lockoutRows) {
-        if (lockout.provider !== provider) continue;
+        if (toString(lockout.provider) !== provider) continue;
         if ((toString(lockout.connectionId) ?? "") !== (connectionId ?? "")) continue;
         const model = toString(lockout.model);
         if (model) modelIds.add(model);
