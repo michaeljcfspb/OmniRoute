@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Card, EmptyState, SegmentedControl, CardSkeleton } from "@/shared/components";
 import {
+  getServiceTierDisplayLabel,
+  type TranslationFn as CostTranslationFn,
+} from "@/shared/utils/serviceTierLabels";
+import {
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -41,6 +45,10 @@ interface UsageAnalyticsSummary {
   fallbackRatePct: number;
   requestedModelCoveragePct: number;
   streak: number;
+  flexRequests?: number;
+  flexCost?: number;
+  flexSavings?: number;
+  flexUsageSavingsTokens?: number;
 }
 
 interface UsageAnalyticsProviderRow {
@@ -81,13 +89,15 @@ interface UsageAnalyticsAccountRow {
 }
 
 interface UsageAnalyticsServiceTierRow {
-  serviceTier: "standard" | "priority";
+  serviceTier: "standard" | "priority" | "flex";
   label: string;
   requests: number;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
   cost: number;
+  savings?: number;
+  usageSavingsTokens?: number;
 }
 
 interface UsageAnalyticsPayload {
@@ -353,6 +363,16 @@ export default function CostOverviewTab() {
   const accountsByCost = [...(analytics?.byAccount || [])]
     .filter((account) => (hasCostData ? account.cost > 0 : account.requests > 0))
     .sort((left, right) => (hasCostData ? right.cost - left.cost : right.requests - left.requests));
+  const localizedAnalytics = useMemo<UsageAnalyticsPayload | null>(() => {
+    if (!analytics?.byServiceTier) return analytics;
+    return {
+      ...analytics,
+      byServiceTier: analytics.byServiceTier.map((row) => ({
+        ...row,
+        label: getServiceTierDisplayLabel(t as CostTranslationFn, row.serviceTier, row.label),
+      })),
+    };
+  }, [analytics, t]);
   const avgCostPerRequest =
     summary.totalRequests > 0 ? summary.totalCost / summary.totalRequests : 0;
   const dailyTrend = analytics?.dailyTrend || [];
@@ -381,13 +401,13 @@ export default function CostOverviewTab() {
   const explorerRows = useMemo(
     () =>
       buildCostExplorerRows({
-        analytics,
+        analytics: localizedAnalytics,
         groupBy: explorerGroupBy,
         searchQuery: explorerSearch,
         sortKey: explorerSortKey,
         sortDirection: explorerSortDirection,
       }),
-    [analytics, explorerGroupBy, explorerSearch, explorerSortDirection, explorerSortKey]
+    [localizedAnalytics, explorerGroupBy, explorerSearch, explorerSortDirection, explorerSortKey]
   );
   const explorerVisibleRows = explorerRows.slice(0, 50);
 

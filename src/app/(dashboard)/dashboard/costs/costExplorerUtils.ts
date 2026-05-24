@@ -28,6 +28,8 @@ export interface CostExplorerBreakdownRow {
   completionTokens?: number;
   totalTokens: number;
   cost: number;
+  savings?: number;
+  usageSavingsTokens?: number;
 }
 
 export interface CostExplorerAnalyticsPayload {

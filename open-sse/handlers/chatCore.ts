@@ -1305,6 +1305,27 @@ export async function handleChatCore({
     }
     return getCodexRequestDefaults(credentials?.providerSpecificData).serviceTier ?? "standard";
   };
+  const resolveReportedServiceTier = (
+    payload?: unknown,
+    maxDepth = 3
+  ): EffectiveServiceTier | null => {
+    if (
+      maxDepth <= 0 ||
+      provider !== "codex" ||
+      !payload ||
+      typeof payload !== "object" ||
+      Array.isArray(payload)
+    ) {
+      return null;
+    }
+    const record = payload as Record<string, unknown>;
+    const rawServiceTier = record.service_tier;
+    if (typeof rawServiceTier === "string" && rawServiceTier.trim().length > 0) {
+      const normalizedServiceTier = normalizeCodexServiceTier(rawServiceTier);
+      if (normalizedServiceTier) return normalizedServiceTier;
+    }
+    return resolveReportedServiceTier(record.response, maxDepth - 1);
+  };
   const persistFailureUsage = (statusCode: number, errorCode?: string | null) => {
     saveRequestUsage({
       provider: provider || "unknown",
@@ -4301,6 +4322,7 @@ export async function handleChatCore({
           }
         : responseBody
     );
+    effectiveServiceTier = resolveReportedServiceTier(responseBody) ?? effectiveServiceTier;
 
     // Notify success - caller can clear error status if needed
     if (onRequestSuccess) {
@@ -4700,6 +4722,7 @@ export async function handleChatCore({
         // Cache capture is non-critical — never block the stream
       }
     }
+    effectiveServiceTier = resolveReportedServiceTier(streamResponseBody) ?? effectiveServiceTier;
 
     // Track cache token metrics for streaming responses
     if (streamUsage && typeof streamUsage === "object") {

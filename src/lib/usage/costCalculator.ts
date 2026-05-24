@@ -52,12 +52,15 @@ export function getCodexFastCostMultiplier(
 ): number {
   const providerKey = normalizeServiceTier(provider);
   const tier = normalizeServiceTier(serviceTier);
-  if (
-    (providerKey !== "codex" && providerKey !== "cx") ||
-    (tier !== "priority" && tier !== "fast")
-  ) {
+  if (providerKey !== "codex" && providerKey !== "cx") {
     return 1;
   }
+
+  // OpenAI Flex Processing is billed at a 50% token discount, like Batch,
+  // while still using the Responses API with service_tier="flex".
+  if (tier === "flex") return 0.5;
+
+  if (tier !== "priority" && tier !== "fast") return 1;
 
   const modelKey = stripCodexEffortSuffix(normalizeModelName(String(model || "")).toLowerCase());
   const compactModelKey = modelKey.replace(/-/g, "");
