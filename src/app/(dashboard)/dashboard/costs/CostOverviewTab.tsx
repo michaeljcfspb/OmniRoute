@@ -805,6 +805,7 @@ export default function CostOverviewTab() {
                     { key: "cost", label: t("cost"), align: "right", format: "currency" },
                   ]}
                   locale={locale}
+                  legacyFreeLabel={t("legacyFreeLabel")}
                 />
               )}
               {accountsByCost.length > 0 && (
@@ -823,6 +824,7 @@ export default function CostOverviewTab() {
                     { key: "cost", label: t("cost"), align: "right", format: "currency" },
                   ]}
                   locale={locale}
+                  legacyFreeLabel={t("legacyFreeLabel")}
                 />
               )}
             </div>
@@ -1385,7 +1387,7 @@ function TopListCard({
                 {hasCostData || Number(row[valueKey] || 0) > 0 ? (
                   currencyFormatter.format(Number(row[valueKey] || 0))
                 ) : (
-                  <span className="text-xs italic opacity-70">Legacy / Free</span>
+                  <span className="text-xs italic opacity-70">{t("legacyFreeLabel")}</span>
                 )}
               </span>
             </div>
@@ -1408,11 +1410,13 @@ function CostBreakdownTable({
   rows,
   columns,
   locale,
+  legacyFreeLabel,
 }: {
   title: string;
   rows: Array<Record<string, any>>;
   columns: ColumnDef[];
   locale: string;
+  legacyFreeLabel: string;
 }) {
   const currencyFormatter = createCurrencyFormatter(locale);
 
@@ -1420,7 +1424,7 @@ function CostBreakdownTable({
     const num = Number(value || 0);
     switch (format) {
       case "currency":
-        return num > 0 ? currencyFormatter.format(num) : "Legacy / Free";
+        return num > 0 ? currencyFormatter.format(num) : legacyFreeLabel;
       case "compact":
         return new Intl.NumberFormat(locale, { notation: "compact" }).format(num);
       case "number":

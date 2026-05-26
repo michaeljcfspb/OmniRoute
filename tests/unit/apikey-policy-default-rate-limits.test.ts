@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-default-rl-"));
+const ORIGINAL_DATA_DIR = process.env.DATA_DIR;
 process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "default-rate-limit-test-secret";
 
@@ -20,6 +21,16 @@ test.after(async () => {
   const coreDb = await import("../../src/lib/db/core.ts");
   coreDb.resetDbInstance();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  if (ORIGINAL_DATA_DIR === undefined) {
+    delete process.env.DATA_DIR;
+  } else {
+    process.env.DATA_DIR = ORIGINAL_DATA_DIR;
+  }
+});
+
+test("apiKeyPolicy exposes no implicit default rate limits (#2289)", async () => {
+  const { DEFAULT_RATE_LIMITS } = await import("../../src/shared/utils/apiKeyPolicy.ts");
+  assert.deepEqual(DEFAULT_RATE_LIMITS, []);
 });
 
 test("buildDefaultRateLimits: unset / empty env disables implicit fallback limits", async () => {

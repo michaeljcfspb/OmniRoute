@@ -129,8 +129,13 @@ export function remapToolNamesInResponse(
   if (!forceLowercase) return text;
 
   // Replace TitleCase tool names back to lowercase in SSE chunks
-  const entries = toolNameMap?.size ? toolNameMap.entries() : Object.entries(REVERSE_MAP);
-  for (const [titleCase, lower] of entries) {
+  if (toolNameMap?.size) {
+    for (const [mapped, original] of toolNameMap.entries()) {
+      text = text.replaceAll(`"name":"${mapped}"`, `"name":"${original}"`);
+      text = text.replaceAll(`"name": "${mapped}"`, `"name": "${original}"`);
+    }
+  }
+  for (const [titleCase, lower] of Object.entries(REVERSE_MAP)) {
     // Match in "name":"ToolName" patterns
     text = text.replaceAll(`"name":"${titleCase}"`, `"name":"${lower}"`);
     text = text.replaceAll(`"name": "${titleCase}"`, `"name": "${lower}"`);

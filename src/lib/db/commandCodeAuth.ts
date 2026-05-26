@@ -66,6 +66,9 @@ function nowIso(): string {
 
 function parseMetadata(value: unknown): CommandCodeAuthMetadata | null {
   if (!value) return null;
+  // rowToCamel auto-parses the `metadata_json` column and exposes the object under
+  // `camel.metadata` (already parsed); accept that directly. Fall back to parsing a
+  // raw string for any other caller.
   if (typeof value === "object" && !Array.isArray(value)) {
     return value as CommandCodeAuthMetadata;
   }

@@ -17,6 +17,12 @@ import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import * as log from "@/sse/utils/logger";
 import { checkRateLimit, RateLimitRule } from "./rateLimiter";
 
+// Default to no per-key request cap. API keys can still opt into explicit
+// limits via Settings/API Manager, while provider/account quota controls remain
+// responsible for upstream 429 handling and fallback.
+// Exported so tests can lock in the "no implicit caps" contract from #2289.
+export const DEFAULT_RATE_LIMITS: RateLimitRule[] = [];
+
 const LEGACY_DEFAULT_RATE_LIMIT_PER_DAY = 1000;
 
 export function buildDefaultRateLimits(rawValue?: string): RateLimitRule[] {
@@ -371,7 +377,7 @@ export async function enforceApiKeyPolicy(
     const hasCustomRateLimits = Boolean(apiKeyInfo.rateLimits && apiKeyInfo.rateLimits.length > 0);
     const rulesToApply = hasCustomRateLimits
       ? [...(apiKeyInfo.rateLimits as RateLimitRule[])]
-      : [...ENV_DEFAULT_RATE_LIMITS];
+      : [...DEFAULT_RATE_LIMITS, ...ENV_DEFAULT_RATE_LIMITS];
 
     // Combine with legacy limits if they exist and custom rate limits aren't set
     if (!hasCustomRateLimits) {

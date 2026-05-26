@@ -24,7 +24,20 @@ import {
   getComboMetrics,
 } from "./comboMetrics.ts";
 import { resolveComboConfig, getDefaultComboConfig } from "./comboConfig.ts";
-import { maybeGenerateHandoff, resolveContextRelayConfig } from "./contextHandoff.ts";
+import {
+  maybeGenerateHandoff,
+  resolveContextRelayConfig,
+  maybeGenerateUniversalHandoff,
+  injectUniversalHandoffBody,
+  resolveUniversalHandoffConfig,
+  SKIP_UNIVERSAL_HANDOFF_FLAG,
+  type MessageLike,
+} from "./contextHandoff.ts";
+import {
+  recordSessionModelUsage,
+  getLastSessionModel,
+  getHandoff,
+} from "../../src/lib/db/contextHandoffs.ts";
 import { fetchCodexQuota } from "./codexQuotaFetcher.ts";
 import { getQuotaFetcher } from "./quotaPreflight.ts";
 import * as semaphore from "./rateLimitSemaphore.ts";
@@ -32,6 +45,8 @@ import { getCircuitBreaker } from "../../src/shared/utils/circuitBreaker";
 import { fisherYatesShuffle, getNextFromDeck } from "../../src/shared/utils/shuffleDeck";
 import { parseModel } from "./model.ts";
 import { applyComboAgentMiddleware, injectModelTag } from "./comboAgentMiddleware.ts";
+import { checkCredentialGate, logCredentialSkip } from "./credentialGate.ts";
+import { emit } from "../../src/lib/events/eventBus";
 import {
   classifyWithConfig,
   DEFAULT_INTENT_CONFIG,
@@ -40,6 +55,8 @@ import {
 import { selectProvider as selectAutoProvider } from "./autoCombo/engine.ts";
 import { selectWithStrategy, type SlaRoutingPolicy } from "./autoCombo/routerStrategy.ts";
 import { getTaskFitness } from "./autoCombo/taskFitness.ts";
+import { parseAutoPrefix } from "./autoCombo/autoPrefix.ts";
+import { handlePipelineCombo, buildPipelineResponse } from "./autoCombo/pipelineRouter.ts";
 import {
   calculateFactors,
   calculateScore,
@@ -577,10 +594,6 @@ function scheduleShadowRouting(
     );
   };
 
-  if (typeof setImmediate === "function") {
-    setImmediate(() => void run());
-    return;
-  }
   setTimeout(() => void run(), 0);
 }
 
@@ -2332,6 +2345,7 @@ function resolveWeightedTargets(
     hasCompositeTierRuntimeOrder(combo)
   );
   const expandedTargets = orderedSteps.flatMap((step) => {
+    if (!step) return [];
     if (!allCombos) {
       return step.kind === "model" ? [step] : [];
     }
@@ -2402,6 +2416,13 @@ export async function handleComboChat({
   const relayConfig =
     strategy === "context-relay" ? resolveContextRelayConfig(relayOptions?.config || null) : null;
 
+  const universalHandoffConfig = resolveUniversalHandoffConfig(
+    (combo.universal_handoff || combo.universalHandoff) as
+      | Record<string, unknown>
+      | null
+      | undefined,
+    relayOptions?.universalHandoffConfig as Record<string, unknown> | null | undefined
+  );
   // ── Combo Agent Middleware (#399 + #401) ────────────────────────────────
   // Apply system_message override, tool_filter_regex, and extract pinned model
   // from context caching tag. These are all opt-in per combo config.
@@ -2525,47 +2546,7 @@ export async function handleComboChat({
           },
         });
 
-        // FIX #585: Sanitize outbound stream — strip <omniModel> tags from
-        // visible content so they don't leak to the user. The tag is still
-        // present in the full response for round-trip context pinning, but
-        // we clean it from each SSE chunk's content field before delivery.
-        //
-        // IMPORTANT: Use a SEPARATE TextDecoder from the transform stream above.
-        // The transform stream's decoder accumulates UTF-8 state; reusing it here
-        // would corrupt multi-byte characters split across chunk boundaries.
-        const sanitizeDecoder = new TextDecoder();
-        const sanitize = new TransformStream({
-          transform(chunk, controller) {
-            const text = sanitizeDecoder.decode(chunk, { stream: true });
-            if (text) {
-              if (text.includes("<omniModel>")) {
-                const cleaned = text.replaceAll(
-                  /(?:\\n|\n|\r)*<omniModel>[^<]+<\/omniModel>(?:\\n|\n|\r)*/g,
-                  ""
-                );
-                if (cleaned) controller.enqueue(encoder.encode(cleaned));
-              } else {
-                controller.enqueue(encoder.encode(text));
-              }
-            }
-          },
-          flush(controller) {
-            const tail = sanitizeDecoder.decode();
-            if (tail) {
-              if (tail.includes("<omniModel>")) {
-                const cleaned = tail.replaceAll(
-                  /(?:\\n|\n|\r)*<omniModel>[^<]+<\/omniModel>(?:\\n|\n|\r)*/g,
-                  ""
-                );
-                if (cleaned) controller.enqueue(encoder.encode(cleaned));
-              } else {
-                controller.enqueue(encoder.encode(tail));
-              }
-            }
-          },
-        });
-
-        const transformedStream = res.body.pipeThrough(transform).pipeThrough(sanitize);
+        const transformedStream = res.body.pipeThrough(transform);
         // Add model info as response header for clients that support it
         const headers = new Headers(res.headers);
         headers.set("X-OmniRoute-Model", modelStr);
@@ -2624,6 +2605,49 @@ export async function handleComboChat({
     );
   } else if (allCombos) {
     log.info("COMBO", `${strategy} with nested resolution: ${orderedTargets.length} total targets`);
+  }
+
+  // Pipeline dispatch: route smart/pipeline-enabled combos through the multi-stage pipeline
+  if (strategy === "auto") {
+    const autoParsed = parseAutoPrefix(combo.name);
+    const autoVariant = autoParsed.valid ? autoParsed.variant : undefined;
+    if (autoVariant === "smart" || config.pipeline_enabled) {
+      try {
+        const pipelineRaw = await handlePipelineCombo({
+          body,
+          combo,
+          handleChatCore: handleSingleModel,
+          log: {
+            info: log.info,
+            warn: log.warn,
+            error: log.error ?? log.warn,
+          },
+          settings: settings ?? {},
+          signal: signal ?? undefined,
+        });
+        // handlePipelineCombo resolves to a PipelineResult (buffered text) or,
+        // in the streaming-final-stage case, a Response. Callers downstream
+        // (chat.ts → withSessionHeader) require a Response, so adapt the
+        // PipelineResult here instead of leaking the raw object.
+        return pipelineRaw instanceof Response
+          ? pipelineRaw
+          : buildPipelineResponse(pipelineRaw, body);
+      } catch (pipelineErr) {
+        const pipelineMsg = pipelineErr instanceof Error ? pipelineErr.message : "";
+        if (pipelineMsg === "PIPELINE_DISABLED") {
+          log.info("COMBO", "Pipeline disabled, falling through to standard auto routing");
+        } else if (pipelineMsg === "PIPELINE_TOKEN_THRESHOLD") {
+          log.info(
+            "COMBO",
+            "Pipeline skipped (prompt below token threshold), falling through to standard auto routing"
+          );
+        } else {
+          log.warn("COMBO", "Pipeline dispatch failed, falling through to standard auto routing", {
+            err: pipelineErr,
+          });
+        }
+      }
+    }
   }
 
   if (strategy === "auto") {
@@ -3021,11 +3045,22 @@ export async function handleComboChat({
         continue;
       }
 
-      // Pre-check: skip models where all accounts are in cooldown
+      // Pre-check: skip models where no credentials are available (excluded, rate-limited, or unavailable)
       if (isModelAvailable) {
         const available = await isModelAvailable(modelStr, target);
         if (!available) {
-          log.info("COMBO", `Skipping ${modelStr} (all accounts in cooldown)`);
+          log.info("COMBO", `Skipping ${modelStr} — no credentials available or model excluded`);
+          if (i > 0) fallbackCount++;
+          continue;
+        }
+      }
+
+      // Credential gate: skip targets with known-bad credentials (fail-fast)
+      const connectionId = target.connectionId as string | undefined;
+      if (connectionId) {
+        const gateResult = checkCredentialGate(connectionId, provider, modelStr);
+        if (gateResult.allowed === false) {
+          logCredentialSkip(log, modelStr, gateResult.reason || "Credential gate blocked");
           if (i > 0) fallbackCount++;
           continue;
         }
@@ -3072,8 +3107,36 @@ export async function handleComboChat({
           "COMBO",
           `Trying model ${i + 1}/${orderedTargets.length}: ${modelStr}${retry > 0 ? ` (retry ${retry})` : ""}`
         );
+        emit("combo.target.attempt", {
+          comboName: combo.name,
+          targetIndex: i,
+          provider,
+          model: modelStr,
+          timestamp: Date.now(),
+          strategy,
+        });
 
-        const result = await handleSingleModelWrapped(body, modelStr, {
+        let attemptBody = body;
+
+        // Universal handoff: inject existing handoff if model changed
+        if (
+          universalHandoffConfig.enabled &&
+          relayOptions?.sessionId &&
+          !(body as Record<string, unknown>)?.[SKIP_UNIVERSAL_HANDOFF_FLAG]
+        ) {
+          const lastModel = getLastSessionModel(relayOptions.sessionId, combo.name);
+          if (lastModel && lastModel !== modelStr) {
+            const existingHandoff = getHandoff(relayOptions.sessionId, combo.name);
+            attemptBody = injectUniversalHandoffBody(
+              body,
+              lastModel,
+              modelStr,
+              `Model routing: ${lastModel} → ${modelStr}`,
+              existingHandoff
+            );
+          }
+        }
+        const result = await handleSingleModelWrapped(attemptBody, modelStr, {
           ...target,
           failoverBeforeRetry: config.failoverBeforeRetry,
         });
@@ -3100,8 +3163,23 @@ export async function handleComboChat({
             if (!lastStatus) lastStatus = 502;
             if (i > 0) fallbackCount++;
             break; // move to next model
+            emit("combo.target.failed", {
+              comboName: combo.name,
+              targetIndex: i,
+              provider,
+              model: modelStr,
+              error: `Quality: ${quality.reason}`,
+              latencyMs: Date.now() - startTime,
+            });
           }
           const latencyMs = Date.now() - startTime;
+          emit("combo.target.succeeded", {
+            comboName: combo.name,
+            targetIndex: i,
+            provider,
+            model: modelStr,
+            latencyMs,
+          });
           log.info(
             "COMBO",
             `Model ${modelStr} succeeded (${latencyMs}ms, ${fallbackCount} fallbacks)`
@@ -3115,6 +3193,41 @@ export async function handleComboChat({
           });
           recordedAttempts++;
 
+          // Universal handoff: record model usage for session
+          if (
+            universalHandoffConfig.enabled &&
+            relayOptions?.sessionId &&
+            !(body as Record<string, unknown>)?.[SKIP_UNIVERSAL_HANDOFF_FLAG]
+          ) {
+            const prevModel = getLastSessionModel(relayOptions.sessionId, combo.name);
+
+            recordSessionModelUsage(
+              relayOptions.sessionId,
+              combo.name,
+              modelStr,
+              provider,
+              target.connectionId ?? undefined
+            );
+
+            if (prevModel && prevModel !== modelStr) {
+              const handoffSourceMessages =
+                Array.isArray(body?.messages) && body.messages.length > 0
+                  ? body.messages
+                  : Array.isArray(body?.input)
+                    ? body.input
+                    : [];
+
+              maybeGenerateUniversalHandoff({
+                sessionId: relayOptions.sessionId,
+                comboName: combo.name,
+                messages: handoffSourceMessages as MessageLike[],
+                prevModel,
+                currModel: modelStr,
+                universalConfig: universalHandoffConfig,
+                handleSingleModel: handleSingleModelWrapped,
+              });
+            }
+          }
           // Context-relay intentionally splits responsibilities:
           // combo.ts decides whether a successful turn should generate a handoff,
           // while chat.ts injects the handoff after the real connectionId is resolved.
@@ -3245,6 +3358,14 @@ export async function handleComboChat({
         // treated as local to that target and the combo continues to the next target.
         // Error classification is retained only for retry/cooldown pacing; it must
         // not decide whether fallback happens, including for generic 400 responses.
+        const rawError = errorBody?.error;
+        const structuredError =
+          rawError && typeof rawError === "object"
+            ? {
+                code: (rawError as Record<string, unknown>).code as string,
+                type: (rawError as Record<string, unknown>).type as string,
+              }
+            : undefined;
         const fallbackResult = checkFallbackError(
           result.status,
           errorText,
@@ -3252,7 +3373,8 @@ export async function handleComboChat({
           null,
           provider,
           result.headers,
-          profile
+          profile,
+          structuredError
         );
         const { cooldownMs } = fallbackResult;
 
@@ -3463,7 +3585,7 @@ async function handleRoundRobinCombo({
     if (isModelAvailable) {
       const available = await isModelAvailable(modelStr, target);
       if (!available) {
-        log.info("COMBO-RR", `Skipping ${modelStr} (all accounts in cooldown)`);
+        log.info("COMBO-RR", `Skipping ${modelStr} — no credentials available or model excluded`);
         if (offset > 0) fallbackCount++;
         continue;
       }
@@ -3653,6 +3775,14 @@ async function handleRoundRobinCombo({
         // strategies: non-ok target responses fall through to the next target.
         // Classification stays here only to support cooldown/semaphore pacing,
         // not to decide whether fallback is allowed.
+        const rawError = errorBody?.error;
+        const structuredError =
+          rawError && typeof rawError === "object"
+            ? {
+                code: (rawError as Record<string, unknown>).code as string,
+                type: (rawError as Record<string, unknown>).type as string,
+              }
+            : undefined;
         const fallbackResult = checkFallbackError(
           result.status,
           errorText,
@@ -3660,7 +3790,8 @@ async function handleRoundRobinCombo({
           null,
           provider,
           result.headers,
-          profile
+          profile,
+          structuredError
         );
         const { cooldownMs } = fallbackResult;
 

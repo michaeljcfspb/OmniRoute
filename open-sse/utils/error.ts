@@ -321,6 +321,7 @@ export function createErrorResult(
     status: number;
     error: string;
     errorType?: string;
+    errorCode?: string;
     response: Response;
     retryAfterMs?: number;
   } = {
@@ -328,6 +329,7 @@ export function createErrorResult(
     status: statusCode,
     error: body.error.message,
     errorType,
+    errorCode,
     response: new Response(JSON.stringify(body), {
       status: statusCode,
       headers: { "Content-Type": "application/json" },

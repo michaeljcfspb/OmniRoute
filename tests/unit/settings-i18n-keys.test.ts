@@ -114,6 +114,7 @@ test("settings translations include LKGP and maintenance keys in English and Sim
 });
 
 test("English sidebar translations include every configured sidebar item", () => {
+  // Collect section titleKeys and all flat item i18nKeys (getSectionItems flattens groups)
   const sidebarKeys = new Set(
     SIDEBAR_SECTIONS.flatMap((section) => [
       section.titleKey,

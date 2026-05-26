@@ -170,7 +170,10 @@ export async function createEmbeddingResponse(
 
   const result = await handleEmbedding({
     body,
-    credentials,
+    // getProviderCredentials returns a richer connection object; handleEmbedding
+    // only reads apiKey/accessToken, both present at runtime. Bridge the wider
+    // selection type to the handler's narrow credential shape.
+    credentials: credentials as { apiKey?: string; accessToken?: string } | null,
     log,
     resolvedProvider: providerConfig,
     resolvedModel,

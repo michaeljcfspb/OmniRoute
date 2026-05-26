@@ -344,12 +344,17 @@ async function validateOpenAILikeProvider({
   isLocal = false,
 }: any) {
   try {
-    const customModelsUrl = modelsUrl?.trim() || "";
+    // Guard against a non-string modelsUrl reaching .trim()/.startsWith() — a malformed
+    // providerSpecificData / registry value would otherwise throw a TypeError mid-validation
+    // ("trim is not a function" / "startsWith is not a function"). See #2463 class.
+    const customModelsUrl = (typeof modelsUrl === "string" ? modelsUrl.trim() : "") || "";
     const endpointUrl = customModelsUrl
       ? customModelsUrl.startsWith("http")
         ? customModelsUrl
         : `${baseUrl.replace(/\/+$/, "")}/${customModelsUrl.replace(/^\/+/, "")}`
-      : addModelsSuffix(baseUrl);
+      : // addModelsSuffix strips a trailing /chat/completions before appending /models,
+        // so an OpenAI-style baseUrl validates against /v1/models, not /v1/chat/completions/models.
+        addModelsSuffix(baseUrl);
 
     const requestUrl =
       typeof providerSpecificData?.modelsUrl === "string" &&
@@ -670,6 +675,29 @@ async function validateAnthropicLikeProvider({
       return validateClaudeOAuthInline({ apiKey, modelId, providerSpecificData });
     }
 
+    const probeUrl =
+      typeof providerSpecificData?.modelsUrl === "string" &&
+      providerSpecificData.modelsUrl.trim() !== ""
+        ? providerSpecificData.modelsUrl.trim()
+        : `${baseUrl}/models`;
+
+    // Best-effort /models probe. It must not fail validation: canonical Claude
+    // base URLs can already include a path/query (…/messages?beta=true).
+    try {
+      await validationRead(
+        probeUrl,
+        {
+          headers: {
+            "anthropic-version": "2023-06-01",
+            ...headers,
+          },
+        },
+        isLocal
+      );
+    } catch {
+      // ignore probe failures
+    }
+
     const requestUrl =
       typeof providerSpecificData?.modelsUrl === "string" &&
       providerSpecificData.modelsUrl.trim() !== ""
@@ -786,27 +814,36 @@ async function validateGeminiLikeProvider({
     }
 
     const normalizedAuthType = String(authType || "query").toLowerCase();
-    const normalizedBaseUrl = String(baseUrl).replace(/\/$/, "");
+    // Strip a trailing /models before appending — the default Gemini registry baseUrl is
+    // `.../v1beta/models` (for the chat urlBuilder), so naively appending /models produced
+    // `.../v1beta/models/models` → upstream 404 on connection validation (#2545).
+    const baseForModels = String(baseUrl)
+      .replace(/\/models\/?$/, "")
+      .replace(/\/$/, "");
     const requestUrl =
       typeof providerSpecificData?.modelsUrl === "string" &&
       providerSpecificData.modelsUrl.trim() !== ""
         ? providerSpecificData.modelsUrl.trim()
-        : normalizedBaseUrl.endsWith("/models")
-          ? normalizedBaseUrl
-          : `${normalizedBaseUrl}/models`;
+        : `${baseForModels}/models`;
+
+    // Use the correct auth header based on provider config:
+    // - gemini / gemini-cli (API key): x-goog-api-key
+    // - gemini-cli (OAuth): Bearer token
     const headers: Record<string, string> = {};
     let urlWithKey = requestUrl;
 
-    if (
-      normalizedAuthType === "oauth" ||
-      normalizedAuthType === "bearer" ||
-      apiKey.startsWith("ya29.")
-    ) {
-      headers.Authorization = `Bearer ${apiKey}`;
-    } else if (normalizedAuthType === "query") {
-      urlWithKey = `${requestUrl}?key=${encodeURIComponent(apiKey)}`;
+    if (typeof apiKey === "string" && apiKey.startsWith("ya29.")) {
+      // A Google OAuth access token (ya29.*) must use Bearer auth even when the
+      // connection is configured as an API-key provider — gemini-cli OAuth stores the
+      // access token in the apiKey field. Checked first so authType "apikey"/"header"
+      // doesn't shadow it with x-goog-api-key.
+      headers["Authorization"] = `Bearer ${apiKey}`;
     } else if (normalizedAuthType === "header" || normalizedAuthType === "apikey") {
       headers["x-goog-api-key"] = apiKey;
+    } else if (normalizedAuthType === "oauth" || normalizedAuthType === "bearer") {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    } else if (normalizedAuthType === "query") {
+      urlWithKey = `${requestUrl}?key=${encodeURIComponent(apiKey)}`;
     }
 
     applyCustomUserAgent(headers, providerSpecificData);
@@ -1230,7 +1267,7 @@ async function validateSnowflakeProvider({ apiKey, providerSpecificData = {} }: 
     return { valid: false, error: "Missing base URL" };
   }
 
-  const usesProgrammaticAccessToken = apiKey.startsWith("pat/");
+  const usesProgrammaticAccessToken = typeof apiKey === "string" && apiKey.startsWith("pat/");
   return validateDirectChatProvider({
     url: normalizeSnowflakeChatUrl(baseUrl),
     headers: {
@@ -2999,8 +3036,9 @@ async function validatePerplexityWebProvider({ apiKey, providerSpecificData = {}
         Accept: "text/event-stream",
         Origin: "https://www.perplexity.ai",
         Referer: "https://www.perplexity.ai/",
+        // Firefox 148 — must match the firefox_148 TLS profile of perplexityTlsClient (issue #2459).
         "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/136.0.0.0",
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0",
         "X-App-ApiClient": "default",
         "X-App-ApiVersion": "client-1.11.0",
         ...(bearerToken
@@ -3012,32 +3050,60 @@ async function validatePerplexityWebProvider({ apiKey, providerSpecificData = {}
       providerSpecificData
     );
 
-    const response = await validationWrite("https://www.perplexity.ai/rest/sse/perplexity_ask", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query_str: "test",
-        params: {
+    // Perplexity is behind Cloudflare Enterprise which pins JA3/JA4 to a real
+    // browser handshake — plain fetch is challenged with a 403 page from
+    // VPS/datacenter IPs even with a valid cookie. Use the Firefox-fingerprinted
+    // TLS client so the validator's verdict reflects the cookie, not the IP (issue #2459).
+    const { tlsFetchPerplexity, isCloudflareChallenge, TlsClientUnavailableError } =
+      await import("@omniroute/open-sse/services/perplexityTlsClient.ts");
+
+    let response: { status: number; text: string | null };
+    try {
+      response = await tlsFetchPerplexity("https://www.perplexity.ai/rest/sse/perplexity_ask", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
           query_str: "test",
-          search_focus: "internet",
-          mode: "concise",
-          model_preference: "default",
-          sources: ["web"],
-          attachments: [],
-          frontend_uuid: crypto.randomUUID(),
-          frontend_context_uuid: crypto.randomUUID(),
-          version: "client-1.11.0",
-          language: "en-US",
-          timezone,
-          search_recency_filter: null,
-          is_incognito: true,
-          use_schematized_api: true,
-          last_backend_uuid: null,
-        },
-      }),
-    });
+          params: {
+            query_str: "test",
+            search_focus: "internet",
+            mode: "concise",
+            model_preference: "default",
+            sources: ["web"],
+            attachments: [],
+            frontend_uuid: crypto.randomUUID(),
+            frontend_context_uuid: crypto.randomUUID(),
+            version: "client-1.11.0",
+            language: "en-US",
+            timezone,
+            search_recency_filter: null,
+            is_incognito: true,
+            use_schematized_api: true,
+            last_backend_uuid: null,
+          },
+        }),
+        timeoutMs: 30_000,
+      });
+    } catch (err) {
+      if (err instanceof TlsClientUnavailableError) {
+        return {
+          valid: false,
+          error: `${err.message} perplexity-web requires it — without it Cloudflare blocks every request.`,
+        };
+      }
+      throw err;
+    }
 
     if (response.status === 401 || response.status === 403) {
+      if (isCloudflareChallenge(response.text)) {
+        return {
+          valid: false,
+          error:
+            "Cloudflare is blocking connections from this server's IP (TLS fingerprint rejected). " +
+            "The session cookie may still be valid — install tls-client-node's native binary or route " +
+            "perplexity-web through a residential proxy.",
+        };
+      }
       return {
         valid: false,
         error:
@@ -3045,7 +3111,7 @@ async function validatePerplexityWebProvider({ apiKey, providerSpecificData = {}
       };
     }
 
-    if (response.ok || (response.status >= 400 && response.status < 500)) {
+    if (response.status === 200 || (response.status >= 400 && response.status < 500)) {
       return { valid: true, error: null };
     }
 
@@ -3233,6 +3299,53 @@ async function validateMuseSparkWebProvider({ apiKey, providerSpecificData = {} 
   }
 }
 
+async function validateAdaptaWebProvider({ apiKey, providerSpecificData = {} }: any) {
+  try {
+    const raw = typeof apiKey === "string" ? apiKey.trim() : "";
+    if (!raw)
+      return { valid: false, error: "Paste your __client cookie from .clerk.agent.adapta.one" };
+    const eqIdx = raw.indexOf("=");
+    const clientJwt = eqIdx > 0 && !raw.startsWith("eyJ") ? raw.slice(eqIdx + 1).trim() : raw;
+
+    const response = await validationRead("https://clerk.agent.adapta.one/v1/client", {
+      headers: applyCustomUserAgent(
+        {
+          Cookie: `__client=${clientJwt}`,
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          Origin: "https://agent.adapta.one",
+        },
+        providerSpecificData
+      ),
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      return {
+        valid: false,
+        error: "Invalid or expired __client cookie — re-paste from .clerk.agent.adapta.one",
+      };
+    }
+
+    if (!response.ok) {
+      return { valid: false, error: `Adapta Clerk returned HTTP ${response.status}` };
+    }
+
+    const body = await response.json().catch(() => null);
+    const sessions: Array<{ id: string; status: string }> = body?.response?.sessions ?? [];
+    const hasActive = sessions.some((s) => s.status === "active");
+    if (!hasActive) {
+      return {
+        valid: false,
+        error: "No active Adapta session — your __client cookie may be expired",
+      };
+    }
+
+    return { valid: true, error: null };
+  } catch (error: any) {
+    return toValidationErrorResult(error);
+  }
+}
+
 /** Jules API — GET /v1alpha/sources with X-Goog-Api-Key (see developers.google.com/jules/api). */
 async function validateJulesProvider({ apiKey }: { apiKey: string }) {
   try {
@@ -3348,6 +3461,7 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
     "perplexity-web": validatePerplexityWebProvider,
     "blackbox-web": validateBlackboxWebProvider,
     "muse-spark-web": validateMuseSparkWebProvider,
+    "adapta-web": validateAdaptaWebProvider,
     "azure-openai": validateAzureOpenAIProvider,
     "azure-ai": validateAzureAiProvider,
     "voyage-ai": ({ apiKey, providerSpecificData }: any) => {

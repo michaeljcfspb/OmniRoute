@@ -179,6 +179,7 @@ export function CompactStatGrid({ sections }: { sections: CompactStatSection[] }
 // ── ActivityHeatmap ────────────────────────────────────────────────────────
 
 export function ActivityHeatmap({ activityMap }) {
+  const t = useTranslations("analytics");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const cells = useMemo(() => {
@@ -264,7 +265,9 @@ export function ActivityHeatmap({ activityMap }) {
   return (
     <Card className="p-4 h-full min-w-0 overflow-hidden">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider">Activity</h3>
+        <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider">
+          {t("overview")}
+        </h3>
         <span className="text-xs text-text-muted">
           {Object.keys(activityMap || {}).length} active days ·{" "}
           {fmt(Object.values(activityMap || {}).reduce((a: number, b: number) => a + b, 0))} tokens
@@ -332,24 +335,25 @@ export function ActivityHeatmap({ activityMap }) {
 // ── DailyTrendChart (Recharts) ─────────────────────────────────────────────
 
 export function DailyTrendChart({ dailyTrend }) {
+  const t = useTranslations("analytics");
   const chartData = useMemo(() => {
     return (dailyTrend || []).map((d) => ({
       date: d.date.slice(5),
-      Input: d.promptTokens,
-      Output: d.completionTokens,
-      Cost: d.cost || 0,
+      [t("chartInput")]: d.promptTokens,
+      [t("chartOutput")]: d.completionTokens,
+      [t("chartCost")]: d.cost || 0,
     }));
-  }, [dailyTrend]);
+  }, [dailyTrend, t]);
 
-  const hasCost = useMemo(() => chartData.some((d) => d.Cost > 0), [chartData]);
+  const hasCost = useMemo(() => chartData.some((d) => d[t("chartCost")] > 0), [chartData, t]);
 
   if (!chartData.length) {
     return (
       <Card className="p-4">
         <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
-          Token Trend
+          {t("chartModelUsageOverTime")}
         </h3>
-        <div className="text-center text-text-muted text-sm py-8">No data</div>
+        <div className="text-center text-text-muted text-sm py-8">{t("chartNoData")}</div>
       </Card>
     );
   }
@@ -357,7 +361,7 @@ export function DailyTrendChart({ dailyTrend }) {
   return (
     <Card className="p-4 flex-1">
       <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
-        Token &amp; Cost Trend
+        {t("chartModelUsageOverTime")}
       </h3>
       <ResponsiveContainer width="100%" height={140}>
         <ComposedChart
@@ -384,7 +388,7 @@ export function DailyTrendChart({ dailyTrend }) {
           )}
           <Tooltip content={<CostTooltip />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
           <Bar
-            dataKey="Input"
+            dataKey={t("chartInput")}
             stackId="a"
             fill="var(--primary)"
             opacity={0.7}
@@ -392,7 +396,7 @@ export function DailyTrendChart({ dailyTrend }) {
             animationDuration={600}
           />
           <Bar
-            dataKey="Output"
+            dataKey={t("chartOutput")}
             stackId="a"
             fill="#10b981"
             opacity={0.7}
@@ -403,7 +407,7 @@ export function DailyTrendChart({ dailyTrend }) {
             <Line
               yAxisId="cost"
               type="monotone"
-              dataKey="Cost"
+              dataKey={t("chartCost")}
               stroke="#f59e0b"
               strokeWidth={2}
               dot={false}
@@ -414,14 +418,14 @@ export function DailyTrendChart({ dailyTrend }) {
       </ResponsiveContainer>
       <div className="flex items-center gap-4 mt-2 text-[10px] text-text-muted">
         <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full bg-primary/70" /> Input
+          <span className="w-2 h-2 rounded-full bg-primary/70" /> {t("chartInput")}
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full bg-emerald-500/70" /> Output
+          <span className="w-2 h-2 rounded-full bg-emerald-500/70" /> {t("chartOutput")}
         </span>
         {hasCost && (
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-amber-500/70" /> Cost ($)
+            <span className="w-2 h-2 rounded-full bg-amber-500/70" /> {t("chartCost")} ($)
           </span>
         )}
       </div>
@@ -440,6 +444,7 @@ function CostTooltip({
   payload?: any[];
   label?: any;
 }) {
+  const t = useTranslations("analytics");
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-white/10 bg-surface px-3 py-2 text-xs shadow-lg">
@@ -452,7 +457,7 @@ function CostTooltip({
           />
           <span>{entry.name}:</span>
           <span className="font-mono font-medium text-text-main">
-            {entry.name === "Cost" ? fmtCost(entry.value) : fmt(entry.value)}
+            {entry.name === t("chartCost") ? fmtCost(entry.value) : fmt(entry.value)}
           </span>
         </div>
       ))}
@@ -463,6 +468,7 @@ function CostTooltip({
 // ── AccountDonut (Recharts) ────────────────────────────────────────────────
 
 export function AccountDonut({ byAccount }) {
+  const t = useTranslations("analytics");
   const data = useMemo(() => byAccount || [], [byAccount]);
   const hasData = data.length > 0;
 
@@ -480,7 +486,7 @@ export function AccountDonut({ byAccount }) {
         <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
           By Account
         </h3>
-        <div className="text-center text-text-muted text-sm py-8">No data</div>
+        <div className="text-center text-text-muted text-sm py-8">{t("chartNoData")}</div>
       </Card>
     );
   }
@@ -535,6 +541,7 @@ export function AccountDonut({ byAccount }) {
 // ── ApiKeyDonut (Recharts) ─────────────────────────────────────────────────
 
 export function ApiKeyDonut({ byApiKey }) {
+  const t = useTranslations("analytics");
   const data = useMemo(() => byApiKey || [], [byApiKey]);
   const hasData = data.length > 0;
 
@@ -553,7 +560,7 @@ export function ApiKeyDonut({ byApiKey }) {
         <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
           By API Key
         </h3>
-        <div className="text-center text-text-muted text-sm py-8">No data</div>
+        <div className="text-center text-text-muted text-sm py-8">{t("chartNoData")}</div>
       </Card>
     );
   }
@@ -613,6 +620,7 @@ export function ApiKeyDonut({ byApiKey }) {
 // ── ApiKeyTable ────────────────────────────────────────────────────────────
 
 export function ApiKeyTable({ byApiKey }) {
+  const t = useTranslations("analytics");
   const [query, setQuery] = useState("");
   const [sortBy, setSortBy] = useState("totalTokens");
   const [sortOrder, setSortOrder] = useState("desc");
@@ -662,7 +670,7 @@ export function ApiKeyTable({ byApiKey }) {
         <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
           API Key Breakdown
         </h3>
-        <div className="text-center text-text-muted text-sm py-8">No data</div>
+        <div className="text-center text-text-muted text-sm py-8">{t("chartNoData")}</div>
       </Card>
     );
   }
@@ -677,7 +685,7 @@ export function ApiKeyTable({ byApiKey }) {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter API key..."
+          placeholder={t("filterSearchKeys")}
           className="w-full max-w-[220px] px-3 py-1.5 rounded-lg bg-bg-subtle border border-border text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary"
         />
       </div>
@@ -695,33 +703,35 @@ export function ApiKeyTable({ byApiKey }) {
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("requests")}
               >
-                Requests <SortIndicator active={sortBy === "requests"} sortOrder={sortOrder} />
+                {t("chartRequests")}{" "}
+                <SortIndicator active={sortBy === "requests"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("promptTokens")}
               >
-                Input <SortIndicator active={sortBy === "promptTokens"} sortOrder={sortOrder} />
+                {t("chartInput")}{" "}
+                <SortIndicator active={sortBy === "promptTokens"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("completionTokens")}
               >
-                Output{" "}
+                {t("chartOutput")}{" "}
                 <SortIndicator active={sortBy === "completionTokens"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("totalTokens")}
               >
-                Total Tokens{" "}
+                {t("chartTotal")}{" "}
                 <SortIndicator active={sortBy === "totalTokens"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("cost")}
               >
-                Cost <SortIndicator active={sortBy === "cost"} sortOrder={sortOrder} />
+                {t("chartCost")} <SortIndicator active={sortBy === "cost"} sortOrder={sortOrder} />
               </th>
             </tr>
           </thead>
@@ -756,7 +766,7 @@ export function ApiKeyTable({ byApiKey }) {
             {sorted.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-text-muted">
-                  No API key matches this filter.
+                  {t("filterNoKeysMatch")}
                 </td>
               </tr>
             )}
@@ -770,6 +780,7 @@ export function ApiKeyTable({ byApiKey }) {
 // ── WeeklyPattern (Recharts) ───────────────────────────────────────────────
 
 export function WeeklyPattern({ weeklyPattern }) {
+  const t = useTranslations("analytics");
   const chartData = useMemo(() => {
     return (weeklyPattern || []).map((w) => ({
       day: w.day.slice(0, 3),
@@ -780,7 +791,7 @@ export function WeeklyPattern({ weeklyPattern }) {
   return (
     <Card className="px-4 py-3">
       <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
-        Weekly
+        {t("chartWeekly")}
       </h3>
       <ResponsiveContainer width="100%" height={48}>
         <BarChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
@@ -874,6 +885,7 @@ export function MostActiveDay7d({ activityMap }) {
 // ── WeeklySquares7d ────────────────────────────────────────────────────────
 
 export function WeeklySquares7d({ activityMap }) {
+  const t = useTranslations("analytics");
   const locale = useLocale();
   const weekdayFormatter = useMemo(
     () => createDateFormatter(locale, { weekday: "short" }),
@@ -917,7 +929,7 @@ export function WeeklySquares7d({ activityMap }) {
         className="text-xs font-semibold uppercase tracking-wider mb-3"
         style={{ color: "var(--color-text-muted)" }}
       >
-        Weekly
+        {t("chartWeekly")}
       </h3>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, justifyContent: "center" }}>
         {days.map((d, i) => (
@@ -956,6 +968,7 @@ export function WeeklySquares7d({ activityMap }) {
 // ── ModelTable ──────────────────────────────────────────────────────────────
 
 export function ModelTable({ byModel, summary }) {
+  const t = useTranslations("analytics");
   const [sortBy, setSortBy] = useState("totalTokens");
   const [sortOrder, setSortOrder] = useState("desc");
 
@@ -987,7 +1000,7 @@ export function ModelTable({ byModel, summary }) {
     <Card className="overflow-hidden">
       <div className="p-4 border-b border-border">
         <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider">
-          Model Breakdown
+          {t("chartModelBreakdown")}
         </h3>
       </div>
       <div className="overflow-x-auto">
@@ -998,40 +1011,44 @@ export function ModelTable({ byModel, summary }) {
                 className="px-4 py-2.5 text-left cursor-pointer group"
                 onClick={() => toggleSort("model")}
               >
-                Model <SortIndicator active={sortBy === "model"} sortOrder={sortOrder} />
+                {t("chartModel")}{" "}
+                <SortIndicator active={sortBy === "model"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("requests")}
               >
-                Requests <SortIndicator active={sortBy === "requests"} sortOrder={sortOrder} />
+                {t("chartRequests")}{" "}
+                <SortIndicator active={sortBy === "requests"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("promptTokens")}
               >
-                Input <SortIndicator active={sortBy === "promptTokens"} sortOrder={sortOrder} />
+                {t("chartInput")}{" "}
+                <SortIndicator active={sortBy === "promptTokens"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("completionTokens")}
               >
-                Output{" "}
+                {t("chartOutput")}{" "}
                 <SortIndicator active={sortBy === "completionTokens"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("totalTokens")}
               >
-                Total <SortIndicator active={sortBy === "totalTokens"} sortOrder={sortOrder} />
+                {t("chartTotal")}{" "}
+                <SortIndicator active={sortBy === "totalTokens"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("cost")}
               >
-                Cost <SortIndicator active={sortBy === "cost"} sortOrder={sortOrder} />
+                {t("chartCost")} <SortIndicator active={sortBy === "cost"} sortOrder={sortOrder} />
               </th>
-              <th className="px-4 py-2.5 text-right w-36">Share</th>
+              <th className="px-4 py-2.5 text-right w-36">{t("chartShare")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -1184,16 +1201,17 @@ export function ServiceTierBreakdown({ byServiceTier, summary }) {
 // ── UsageDetail ────────────────────────────────────────────────────────────
 
 export function UsageDetail({ summary }) {
+  const t = useTranslations("analytics");
   const items = [
-    { label: "Input", value: summary?.promptTokens, color: "text-primary" },
-    { label: "Cache read", value: 0, color: "text-text-muted" },
-    { label: "Output", value: summary?.completionTokens, color: "text-emerald-500" },
+    { label: t("chartInput"), value: summary?.promptTokens, color: "text-primary" },
+    { label: t("chartCacheRead"), value: 0, color: "text-text-muted" },
+    { label: t("chartOutput"), value: summary?.completionTokens, color: "text-emerald-500" },
   ];
 
   return (
     <Card className="p-4 flex-1">
       <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
-        Usage Detail
+        {t("chartUsageDetail")}
       </h3>
       <div className="flex flex-col gap-2">
         {items.map((item, i) => (
@@ -1223,6 +1241,7 @@ const PROVIDER_COLORS = [
 ];
 
 export function ProviderCostDonut({ byProvider }) {
+  const t = useTranslations("analytics");
   const data = useMemo(() => byProvider || [], [byProvider]);
   const hasData = data.length > 0 && data.some((p) => p.cost > 0);
 
@@ -1242,9 +1261,9 @@ export function ProviderCostDonut({ byProvider }) {
     return (
       <Card className="p-4 flex-1">
         <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
-          Cost by Provider
+          {t("chartCostByProvider")}
         </h3>
-        <div className="text-center text-text-muted text-sm py-8">No cost data</div>
+        <div className="text-center text-text-muted text-sm py-8">{t("chartNoCostData")}</div>
       </Card>
     );
   }
@@ -1252,7 +1271,7 @@ export function ProviderCostDonut({ byProvider }) {
   return (
     <Card className="p-4 flex-1">
       <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
-        Cost by Provider
+        {t("chartCostByProvider")}
       </h3>
       <div className="flex items-center gap-4">
         <ResponsiveContainer width={120} height={120}>
@@ -1299,6 +1318,7 @@ export function ProviderCostDonut({ byProvider }) {
 // ── ModelOverTimeChart (Stacked Area) ──────────────────────────────────────
 
 export function ModelOverTimeChart({ dailyByModel, modelNames }) {
+  const t = useTranslations("analytics");
   const data = useMemo(() => dailyByModel || [], [dailyByModel]);
   const models = useMemo(() => modelNames || [], [modelNames]);
 
@@ -1319,9 +1339,9 @@ export function ModelOverTimeChart({ dailyByModel, modelNames }) {
     return (
       <Card className="p-4">
         <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
-          Model Usage Over Time
+          {t("chartModelUsageOverTime")}
         </h3>
-        <div className="text-center text-text-muted text-sm py-8">No data</div>
+        <div className="text-center text-text-muted text-sm py-8">{t("chartNoData")}</div>
       </Card>
     );
   }
@@ -1329,7 +1349,7 @@ export function ModelOverTimeChart({ dailyByModel, modelNames }) {
   return (
     <Card className="p-4">
       <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
-        Model Usage Over Time
+        {t("chartModelUsageOverTime")}
       </h3>
       <ResponsiveContainer width="100%" height={240}>
         <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -1381,6 +1401,7 @@ export function ModelOverTimeChart({ dailyByModel, modelNames }) {
 // ── ProviderTable ──────────────────────────────────────────────────────────
 
 export function ProviderTable({ byProvider }) {
+  const t = useTranslations("analytics");
   const [sortBy, setSortBy] = useState("totalTokens");
   const [sortOrder, setSortOrder] = useState("desc");
 
@@ -1415,9 +1436,9 @@ export function ProviderTable({ byProvider }) {
     return (
       <Card className="p-4">
         <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
-          Provider Breakdown
+          {t("chartProviderBreakdown")}
         </h3>
-        <div className="text-center text-text-muted text-sm py-8">No data</div>
+        <div className="text-center text-text-muted text-sm py-8">{t("chartNoData")}</div>
       </Card>
     );
   }
@@ -1426,7 +1447,7 @@ export function ProviderTable({ byProvider }) {
     <Card className="overflow-hidden">
       <div className="p-4 border-b border-border">
         <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider">
-          Provider Breakdown
+          {t("chartProviderBreakdown")}
         </h3>
       </div>
       <div className="overflow-x-auto">
@@ -1437,40 +1458,44 @@ export function ProviderTable({ byProvider }) {
                 className="px-4 py-2.5 text-left cursor-pointer group"
                 onClick={() => toggleSort("provider")}
               >
-                Provider <SortIndicator active={sortBy === "provider"} sortOrder={sortOrder} />
+                {t("chartProvider")}{" "}
+                <SortIndicator active={sortBy === "provider"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("requests")}
               >
-                Requests <SortIndicator active={sortBy === "requests"} sortOrder={sortOrder} />
+                {t("chartRequests")}{" "}
+                <SortIndicator active={sortBy === "requests"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("promptTokens")}
               >
-                Input <SortIndicator active={sortBy === "promptTokens"} sortOrder={sortOrder} />
+                {t("chartInput")}{" "}
+                <SortIndicator active={sortBy === "promptTokens"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("completionTokens")}
               >
-                Output{" "}
+                {t("chartOutput")}{" "}
                 <SortIndicator active={sortBy === "completionTokens"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("totalTokens")}
               >
-                Total <SortIndicator active={sortBy === "totalTokens"} sortOrder={sortOrder} />
+                {t("chartTotal")}{" "}
+                <SortIndicator active={sortBy === "totalTokens"} sortOrder={sortOrder} />
               </th>
               <th
                 className="px-4 py-2.5 text-right cursor-pointer group"
                 onClick={() => toggleSort("cost")}
               >
-                Cost <SortIndicator active={sortBy === "cost"} sortOrder={sortOrder} />
+                {t("chartCost")} <SortIndicator active={sortBy === "cost"} sortOrder={sortOrder} />
               </th>
-              <th className="px-4 py-2.5 text-right w-36">Share</th>
+              <th className="px-4 py-2.5 text-right w-36">{t("chartShare")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">

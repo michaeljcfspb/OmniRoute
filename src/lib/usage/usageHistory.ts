@@ -24,6 +24,8 @@ type PendingRequestMetadata = {
   clientRequest?: unknown;
   providerRequest?: unknown;
   providerUrl?: string | null;
+  stage?: string | null;
+  stageUpdatedAt?: number | null;
 };
 type PendingRequestDetail = {
   model: string;
@@ -34,6 +36,8 @@ type PendingRequestDetail = {
   clientRequest?: unknown;
   providerRequest?: unknown;
   providerUrl?: string | null;
+  stage?: string | null;
+  stageUpdatedAt?: number | null;
 };
 
 function asRecord(value: unknown): JsonRecord {
@@ -125,6 +129,16 @@ function normalizePendingMetadata(metadata?: PendingRequestMetadata): PendingReq
   }
   if (metadata.providerUrl !== undefined) {
     normalized.providerUrl = toStringOrNull(metadata.providerUrl) || null;
+  }
+  if (metadata.stage !== undefined) {
+    normalized.stage = toStringOrNull(metadata.stage) || null;
+    normalized.stageUpdatedAt = Date.now();
+  }
+  if (metadata.stageUpdatedAt !== undefined) {
+    normalized.stageUpdatedAt =
+      typeof metadata.stageUpdatedAt === "number" && Number.isFinite(metadata.stageUpdatedAt)
+        ? metadata.stageUpdatedAt
+        : null;
   }
   if (metadata.clientRequest !== undefined) {
     normalized.clientRequest = truncatePendingPreview(protectPayloadForLog(metadata.clientRequest));
@@ -346,8 +360,8 @@ export async function saveRequestUsage(entry: any) {
       `
       INSERT INTO usage_history (provider, model, connection_id, api_key_id, api_key_name,
         tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning,
-        service_tier, status, success, latency_ms, ttft_ms, error_code, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        service_tier, status, success, latency_ms, ttft_ms, error_code, combo_strategy, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
     ).run(
       entry.provider || null,
@@ -370,6 +384,7 @@ export async function saveRequestUsage(entry: any) {
           ? Number(entry.latencyMs)
           : 0,
       entry.errorCode || null,
+      entry.comboStrategy || entry.combo_strategy || null,
       timestamp
     );
   } catch (error) {

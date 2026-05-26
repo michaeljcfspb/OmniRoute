@@ -26,6 +26,12 @@ const DEFAULT_COMBO_CONFIG = {
   failoverBeforeRetry: true,
   maxSetRetries: 0,
   setRetryDelayMs: 2000,
+  // Pipeline defaults
+  pipeline_enabled: false,
+  task_detection: "pattern",
+  max_reflection_loops: 1,
+  skip_pipeline_for_tokens_under: 50,
+  pipeline_fallback: "single-provider",
   resetAwareQuotaCacheTtlMs: 0,
   resetAwareQuotaCacheMaxStaleMs: 0,
   shadowRouting: {

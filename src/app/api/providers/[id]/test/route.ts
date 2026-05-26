@@ -221,7 +221,10 @@ function hasQoderToken(connection: any): boolean {
   if (typeof connection?.apiKey === "string" && connection.apiKey.trim().length > 0) return true;
   const psd = connection?.providerSpecificData;
   if (psd && typeof psd === "object") {
-    const pat = (psd as any).personalAccessToken ?? (psd as any).pat ?? (psd as any).accessToken;
+    const pat =
+      (psd as Record<string, unknown>).personalAccessToken ??
+      (psd as Record<string, unknown>).pat ??
+      (psd as Record<string, unknown>).accessToken;
     if (typeof pat === "string" && pat.trim().length > 0) return true;
   }
   return false;
@@ -240,7 +243,7 @@ async function getProviderRuntimeStatus(connection: any) {
     provider === "qoder" && connection?.authType !== "apikey" && hasQoderToken(connection);
   if (isQoderOauthWithToken) {
     const message =
-      "Qoder OAuth/Local CLI mode is selected but a Personal Access Token is stored on this connection. If you have a Personal Access Token, switch this connection to API Key auth instead.";
+      "Qoder OAuth/Local CLI mode is selected but a Personal Access Token is stored on this connection. Switch this connection to API Key auth instead.";
     return {
       installed: false,
       runnable: false,

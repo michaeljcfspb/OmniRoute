@@ -345,6 +345,8 @@ function toPersistedEvalRun(row: unknown): PersistedEvalRun | null {
   const camel = rowToCamel(row) as JsonRecord | null;
   if (!camel) return null;
 
+  // rowToCamel auto-parses `*_json` columns and exposes them under the base name
+  // (summary_json → camel.summary); keep *Json fallbacks for alternate adapters/callers.
   const summaryRecord = parseJsonRecord(camel.summary ?? camel.summaryJson);
   const outputsRecord = parseJsonRecord(camel.outputs ?? camel.outputsJson);
   const outputs = Object.fromEntries(
