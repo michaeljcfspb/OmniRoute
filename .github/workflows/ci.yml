@@ -285,8 +285,9 @@ jobs:
       - name: Run c8 over shard ${{ matrix.shard }}/4
         run: |
           npx c8 \
+            --temp-directory=coverage-shard \
+            --reports-dir=coverage-shard-report \
             --reporter=json \
-            --output-dir=coverage-shard \
             --exclude=tests/** \
             --exclude=**/*.test.* \
             node --import tsx --test --test-force-exit --test-concurrency=4 \
@@ -297,7 +298,7 @@ jobs:
         with:
           name: coverage-shard-${{ matrix.shard }}
           path: coverage-shard/
-          if-no-files-found: warn
+          if-no-files-found: error
 
   test-coverage:
     name: Coverage
@@ -323,6 +324,8 @@ jobs:
           merge-multiple: true
       - name: Merge + report + gate
         run: |
+          test -d coverage-shards || { echo "No coverage shard artifacts were downloaded" >&2; exit 1; }
+          find coverage-shards -type f -name '*.json' -print -quit | grep -q . || { echo "Coverage shard artifacts contain no V8 JSON files" >&2; exit 1; }
           mkdir -p coverage
           npx c8 report \
             --temp-directory coverage-shards \
