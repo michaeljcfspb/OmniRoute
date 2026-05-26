@@ -3789,6 +3789,7 @@ export async function handleChatCore({
   trackPendingRequest(model, provider, connectionId, true, {
     clientEndpoint: clientRawRequest?.endpoint || "/v1/chat/completions",
     clientRequest: clientRawRequest?.body ?? body,
+    providerRequest: translatedBody,
     stage: "registered",
   });
 
