@@ -3734,6 +3734,8 @@
     "audioShortLabel": "Audio Short Label",
     "azureOpenAiBaseUrlHint": "Azure Open Ai Base Url Hint",
     "bailianBaseUrlHint": "Bailian Base Url Hint",
+    "claudeWebCookieHint": "Open claude.ai → DevTools → Application → Cookies → claude.ai, copy the 'sessionKey' value. Also need cf_clearance, __cf_bm, _cfuvid for Cloudflare.",
+    "claudeWebCookiePlaceholder": "sessionKey=sk-ant-...",
     "blackboxWebCookieHint": "Blackbox Web Cookie Hint",
     "blackboxWebCookiePlaceholder": "Blackbox Web Cookie Placeholder",
     "t3ChatWebCookieHint": "Apri t3.chat → DevTools → Applicazione → Archiviazione locale → https://t3.chat, copia 'convex-session-id'. Quindi apri DevTools → Rete, copia l'intestazione completa del cookie da qualsiasi richiesta di chat. Incolla entrambi i valori nei campi sottostanti.",

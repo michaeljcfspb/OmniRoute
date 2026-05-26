@@ -3734,6 +3734,8 @@
     "audioShortLabel": "Audio Short Label",
     "azureOpenAiBaseUrlHint": "Azure Open Ai Base Url Hint",
     "bailianBaseUrlHint": "Bailian Base Url Hint",
+    "claudeWebCookieHint": "Open claude.ai → DevTools → Application → Cookies → claude.ai, copy the 'sessionKey' value. Also need cf_clearance, __cf_bm, _cfuvid for Cloudflare.",
+    "claudeWebCookiePlaceholder": "sessionKey=sk-ant-...",
     "blackboxWebCookieHint": "Blackbox Web Cookie Hint",
     "blackboxWebCookiePlaceholder": "Blackbox Web Cookie Placeholder",
     "t3ChatWebCookieHint": "t3.chat → DevTools → Application → Local Storage → https://t3.chat उघडा, 'convex-session-id' कॉपी करा. नंतर DevTools → नेटवर्क उघडा, कोणत्याही चॅट विनंतीवरून संपूर्ण कुकी शीर्षलेख कॉपी करा. खालील फील्डमध्ये दोन्ही मूल्ये पेस्ट करा.",

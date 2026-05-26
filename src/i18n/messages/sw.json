@@ -3734,6 +3734,8 @@
     "audioShortLabel": "Audio Short Label",
     "azureOpenAiBaseUrlHint": "Azure Open Ai Base Url Hint",
     "bailianBaseUrlHint": "Bailian Base Url Hint",
+    "claudeWebCookieHint": "Open claude.ai → DevTools → Application → Cookies → claude.ai, copy the 'sessionKey' value. Also need cf_clearance, __cf_bm, _cfuvid for Cloudflare.",
+    "claudeWebCookiePlaceholder": "sessionKey=sk-ant-...",
     "blackboxWebCookieHint": "Blackbox Web Cookie Hint",
     "blackboxWebCookiePlaceholder": "Blackbox Web Cookie Placeholder",
     "t3ChatWebCookieHint": "Fungua t3.chat → DevTools → Programu → Hifadhi ya Ndani → https://t3.chat, nakili 'convex-session-id'. Kisha ufungue DevTools → Mtandao, nakili kichwa kamili cha Kidakuzi kutoka kwa ombi lolote la gumzo. Bandika thamani zote mbili katika sehemu zilizo hapa chini.",
