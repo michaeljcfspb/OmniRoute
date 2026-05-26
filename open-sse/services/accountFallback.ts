@@ -1269,6 +1269,22 @@ export function checkFallbackError(
       };
     }
 
+    const quotaResetHintMs = parseRetryFromErrorText(errorStr);
+    if (
+      shouldUseQuotaSignal &&
+      quotaResetHintMs &&
+      classifyErrorText(errorStr) === RateLimitReason.QUOTA_EXHAUSTED
+    ) {
+      return {
+        shouldFallback: true,
+        cooldownMs: quotaResetHintMs,
+        baseCooldownMs: quotaResetHintMs,
+        newBackoffLevel: 0,
+        reason: RateLimitReason.QUOTA_EXHAUSTED,
+        usedUpstreamRetryHint: true,
+      };
+    }
+
     if (
       status === HTTP_STATUS.FORBIDDEN &&
       provider &&
