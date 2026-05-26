@@ -284,9 +284,11 @@ jobs:
       - run: npm run check:node-runtime
       - name: Run c8 over shard ${{ matrix.shard }}/4
         run: |
+          rm -rf coverage-shard coverage-shard-report
           npx c8 \
+            --temp-directory=coverage-shard \
+            --reports-dir=coverage-shard-report \
             --reporter=json \
-            --output-dir=coverage-shard \
             --exclude=tests/** \
             --exclude=**/*.test.* \
             node --import tsx --test --test-force-exit --test-concurrency=4 \
@@ -296,8 +298,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: coverage-shard-${{ matrix.shard }}
-          path: coverage-shard/
-          if-no-files-found: warn
+          path: coverage-shard/*.json
+          if-no-files-found: error
 
   test-coverage:
     name: Coverage
@@ -324,6 +326,11 @@ jobs:
       - name: Merge + report + gate
         run: |
           mkdir -p coverage
+          if [ ! -d coverage-shards ] || ! find coverage-shards -maxdepth 1 -type f -name '*.json' | grep -q .; then
+            echo "::error::No raw coverage shard data was downloaded."
+            find . -maxdepth 3 -type f | sort
+            exit 1
+          fi
           npx c8 report \
             --temp-directory coverage-shards \
             --reports-dir coverage \
