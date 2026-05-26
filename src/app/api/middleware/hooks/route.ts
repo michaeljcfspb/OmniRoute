@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import {
   getAllMiddlewareHooks,
   createMiddlewareHook,
@@ -7,6 +8,24 @@ import {
 } from "@/lib/localDb";
 import { registerHook, getAllHooks } from "@/lib/middleware/registry";
 import type { HookConfig, CreateHookRequest } from "@/lib/middleware/types";
+import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
+
+const hookScopeSchema = z.union([
+  z.object({ type: z.literal("global") }),
+  z.object({ type: z.literal("combo"), comboId: z.string().trim().min(1) }),
+]);
+
+const createHookSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "name is required")
+    .regex(/^[a-zA-Z0-9_-]+$/, "name must contain only letters, numbers, hyphens, and underscores"),
+  description: z.string().optional().default(""),
+  priority: z.number().int().optional().default(200),
+  scope: hookScopeSchema.optional().default({ type: "global" }),
+  code: z.string().trim().min(1, "code is required"),
+});
 
 /**
  * GET /api/middleware/hooks — List all registered hooks
@@ -54,23 +73,12 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   try {
-    const body: CreateHookRequest = await request.json();
-
-    if (!body.name || !body.name.trim()) {
-      return NextResponse.json({ error: "name is required" }, { status: 400 });
+    const rawBody = await request.json();
+    const validation = validateBody(createHookSchema, rawBody);
+    if (isValidationFailure(validation)) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
-
-    if (!body.code || !body.code.trim()) {
-      return NextResponse.json({ error: "code is required" }, { status: 400 });
-    }
-
-    // Validate name format
-    if (!/^[a-zA-Z0-9_-]+$/.test(body.name)) {
-      return NextResponse.json(
-        { error: "name must contain only letters, numbers, hyphens, and underscores" },
-        { status: 400 }
-      );
-    }
+    const body: CreateHookRequest = validation.data;
 
     // Check for duplicate
     const existing = getMiddlewareHook(body.name);

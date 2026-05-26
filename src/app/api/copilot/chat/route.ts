@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { processCopilotChat } from "@/lib/copilot/engine";
-import type { CopilotRequest } from "@/lib/copilot/engine";
+import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
+
+const copilotRequestSchema = z.object({
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant", "system"]),
+        content: z.string().min(1, "message content is required"),
+      })
+    )
+    .min(1, "messages array is required"),
+});
 
 /**
  * POST /api/copilot/chat
@@ -18,13 +30,13 @@ export async function POST(request: Request) {
   if (authError) return authError;
 
   try {
-    const body: CopilotRequest = await request.json();
-
-    if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
-      return NextResponse.json({ error: "messages array is required" }, { status: 400 });
+    const rawBody = await request.json();
+    const validation = validateBody(copilotRequestSchema, rawBody);
+    if (isValidationFailure(validation)) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const response = await processCopilotChat(body);
+    const response = await processCopilotChat(validation.data);
 
     return NextResponse.json(response, { status: 200 });
   } catch (error) {
