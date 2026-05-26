@@ -72,10 +72,22 @@ export async function processPendingBatches(): Promise<void> {
     if (batch.status === "in_progress" || batch.status === "finalizing") {
       if (!activeBatches.has(batch.id)) {
         console.log(`[BATCH] Recovering stale batch ${batch.id} (${batch.status}) → validating`);
+
+        if (batch.outputFileId) {
+          deleteFile(batch.outputFileId);
+        }
+        if (batch.errorFileId) {
+          deleteFile(batch.errorFileId);
+        }
+
         updateBatch(batch.id, {
           status: "validating",
           inProgressAt: null,
           finalizingAt: null,
+          outputFileId: null,
+          errorFileId: null,
+          requestCountsCompleted: 0,
+          requestCountsFailed: 0,
         });
       }
     }
