@@ -51,10 +51,33 @@ export async function createChatPipelineHarness(prefix) {
 
   function toPlainHeaders(headers) {
     if (!headers) return {};
-    if (headers instanceof Headers) return Object.fromEntries(headers.entries());
-    return Object.fromEntries(
-      Object.entries(headers).map(([key, value]) => [key, value == null ? "" : String(value)])
-    );
+    const plain = {};
+    if (typeof headers.forEach === "function") {
+      try {
+        headers.forEach((value, key) => {
+          plain[key.toLowerCase()] = value;
+        });
+        return plain;
+      } catch (e) {
+        // Fall through to other strategies if forEach fails due to cross-realm private slot errors
+      }
+    }
+    if (typeof headers.entries === "function") {
+      try {
+        for (const [key, value] of headers.entries()) {
+          plain[key.toLowerCase()] = value;
+        }
+        return plain;
+      } catch (e) {
+        // Fall through
+      }
+    }
+    try {
+      for (const [key, value] of Object.entries(headers)) {
+        plain[key.toLowerCase()] = value == null ? "" : String(value);
+      }
+    } catch (e) {}
+    return plain;
   }
 
   function buildRequest({
@@ -62,6 +85,11 @@ export async function createChatPipelineHarness(prefix) {
     body,
     authKey = null,
     headers = {},
+  }: {
+    url?: string;
+    body?: any;
+    authKey?: string | null;
+    headers?: Record<string, string>;
   } = {}) {
     const requestHeaders = {
       "Content-Type": "application/json",
